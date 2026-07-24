@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Start The Odyssey once all five members have joined.
+# Start The Odyssey once all five members have joined, backdated to its real
+# start (Monday 2026-07-20), and backfill the submissions that already
+# happened in the group chat:
+#   - Peter submitted Book 1 on Monday    2026-07-20
+#   - Henry submitted Book 2 on Wednesday 2026-07-22
+# leaving Billy on the clock for Book 3 (due Friday 2026-07-24, Ohio time).
 #
 # Usage: ./scripts/start-odyssey.sh <clubId>
 #
@@ -13,7 +18,7 @@ set -euo pipefail
 
 CLUB_ID="${1:?usage: $0 <clubId>}"
 
-npx convex run setup:startBookAsAdmin "$(cat <<EOF
+BOOK_ID=$(npx convex run setup:startBookAsAdmin "$(cat <<EOF
 {
   "clubId": "$CLUB_ID",
   "title": "The Odyssey",
@@ -21,6 +26,7 @@ npx convex run setup:startBookAsAdmin "$(cat <<EOF
   "punishment": "1 mile farmer's carry with 45 pound DBs or plates. Every time you put them down you have to run 0.25 miles (or one lap on a track back to your weights).",
   "suggestedByName": "Peter",
   "rotationNames": ["Peter", "Henry", "Billy", "Ian M", "Ian S"],
+  "startedDay": "2026-07-20",
   "sectionTitles": [
     "Book 1", "Book 2", "Book 3",
     "Book 4 (first half)", "Book 4 (second half)",
@@ -31,4 +37,15 @@ npx convex run setup:startBookAsAdmin "$(cat <<EOF
   ]
 }
 EOF
-)"
+)" | tr -d '"')
+echo "Started book: $BOOK_ID"
+
+npx convex run setup:backfillSubmission \
+  "{\"bookId\": \"$BOOK_ID\", \"sectionIndex\": 0, \"byName\": \"Peter\", \"day\": \"2026-07-20\"}"
+echo "Backfilled Book 1 (Peter, Monday)"
+
+npx convex run setup:backfillSubmission \
+  "{\"bookId\": \"$BOOK_ID\", \"sectionIndex\": 1, \"byName\": \"Henry\", \"day\": \"2026-07-22\"}"
+echo "Backfilled Book 2 (Henry, Wednesday)"
+
+echo "Done. Billy is up: Book 3, due 2026-07-24."

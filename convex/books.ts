@@ -42,6 +42,8 @@ export async function startBookHelper(
     sectionTitles: string[];
     rotation?: Id<"users">[];
     pollId?: Id<"polls">;
+    // For backfilling a book that really started earlier (yyyy-MM-dd).
+    startedDay?: string;
   },
 ): Promise<Id<"books">> {
   if (args.sectionTitles.length === 0) {
@@ -59,7 +61,7 @@ export async function startBookHelper(
 
   const firstReaderId = rotation[0];
   const firstReader = await ctx.db.get(firstReaderId);
-  const startedDay = todayInTz(firstReader?.timezone);
+  const startedDay = args.startedDay ?? todayInTz(firstReader?.timezone);
 
   const bookId = await ctx.db.insert("books", {
     clubId: args.clubId,
@@ -211,7 +213,7 @@ export const submitSection = mutation({
  * result is the authoritative final standing — `endedDay` is informational
  * (members' local days straddle it), so nothing recomputes from it.
  */
-async function finishBook(ctx: MutationCtx, book: Doc<"books">) {
+export async function finishBook(ctx: MutationCtx, book: Doc<"books">) {
   const endedDay = todayInTz(undefined);
   const tallies = await tallyClouds(
     ctx,
