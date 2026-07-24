@@ -44,6 +44,7 @@ function Members(props: { home: Home }) {
 function Invites(props: { clubId: Id<"clubs"> }) {
   const invites = useQuery(api.clubs.openInvites, { clubId: props.clubId });
   const createInvite = useMutation(api.clubs.createInvite);
+  const [forName, setForName] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,13 +53,21 @@ function Invites(props: { clubId: Id<"clubs"> }) {
       <h2 className="mb-1 text-lg font-bold">Invite someone</h2>
       <p className="mb-3 text-sm text-ink/60">
         Mint a single-use code and send it however you like. They enter it
-        after signing up.
+        after signing up. Naming the invite pre-fills their display name and
+        shows you who hasn't joined yet.
       </p>
       {invites && invites.length > 0 && (
         <ul className="mb-3 space-y-2">
           {invites.map((i) => (
             <li key={i._id} className="flex items-center justify-between rounded-xl bg-paper px-3 py-2">
-              <code className="font-mono text-lg tracking-widest">{i.code}</code>
+              <span>
+                <code className="font-mono text-lg tracking-widest">{i.code}</code>
+                {i.forName && (
+                  <span className="ml-2 text-sm text-ink/50">
+                    for {i.forName}
+                  </span>
+                )}
+              </span>
               <Button
                 variant="ghost"
                 onClick={async () => {
@@ -73,18 +82,32 @@ function Invites(props: { clubId: Id<"clubs"> }) {
           ))}
         </ul>
       )}
-      <Button
-        onClick={async () => {
+      <form
+        className="flex items-end gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
           setError(null);
           try {
-            await createInvite({ clubId: props.clubId });
+            await createInvite({
+              clubId: props.clubId,
+              forName: forName.trim() || undefined,
+            });
+            setForName("");
           } catch (err) {
             setError(errorMessage(err));
           }
         }}
       >
-        ➕ New invite code
-      </Button>
+        <Field label="Who's it for? (optional)">
+          <input
+            className={inputClass}
+            value={forName}
+            onChange={(e) => setForName(e.target.value)}
+            placeholder="e.g. Billy"
+          />
+        </Field>
+        <Button type="submit">➕ New code</Button>
+      </form>
       <ErrorNote error={error} />
     </Card>
   );

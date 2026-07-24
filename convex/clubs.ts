@@ -57,10 +57,11 @@ export const mine = query({
 });
 
 export const createInvite = mutation({
-  args: { clubId: v.id("clubs") },
+  args: { clubId: v.id("clubs"), forName: v.optional(v.string()) },
   returns: v.string(),
   handler: async (ctx, args) => {
     const user = await requireMembership(ctx, args.clubId);
+    const forName = args.forName?.trim() || undefined;
     // A collision would brick both codes (joinWithCode uses .unique()), so
     // regenerate on the off chance.
     let code = generateInviteCode();
@@ -76,6 +77,7 @@ export const createInvite = mutation({
       clubId: args.clubId,
       code,
       createdBy: user._id,
+      forName,
     });
     return code;
   },
@@ -106,6 +108,11 @@ export const joinWithCode = mutation({
       throw new ConvexError("You're already a member of this club.");
     }
     await ctx.db.patch(invite._id, { usedBy: user._id });
+    // A labeled invite names its intended recipient; adopt it as the display
+    // name unless they've already picked one.
+    if (invite.forName !== undefined && user.name === undefined) {
+      await ctx.db.patch(user._id, { name: invite.forName });
+    }
     await ctx.db.insert("memberships", {
       clubId: invite.clubId,
       userId: user._id,
@@ -124,7 +131,7 @@ export const openInvites = query({
       .collect();
     return invites
       .filter((i) => i.usedBy === undefined)
-      .map((i) => ({ _id: i._id, code: i.code }));
+      .map((i) => ({ _id: i._id, code: i.code, forName: i.forName ?? null }));
   },
 });
 

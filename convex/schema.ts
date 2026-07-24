@@ -55,6 +55,8 @@ export default defineSchema({
     clubId: v.id("clubs"),
     code: v.string(),
     createdBy: v.id("users"),
+    // Who the code is meant for; pre-fills their display name on redemption.
+    forName: v.optional(v.string()),
     usedBy: v.optional(v.id("users")),
   })
     .index("code", ["code"])

@@ -18,6 +18,7 @@ import type * as lib_days from "../lib/days.js";
 import type * as polls from "../polls.js";
 import type * as pushups from "../pushups.js";
 import type * as rollover from "../rollover.js";
+import type * as setup from "../setup.js";
 import type * as summaries from "../summaries.js";
 import type * as users from "../users.js";
 
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   polls: typeof polls;
   pushups: typeof pushups;
   rollover: typeof rollover;
+  setup: typeof setup;
   summaries: typeof summaries;
   users: typeof users;
 }>;
