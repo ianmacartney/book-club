@@ -9,10 +9,12 @@
     "dev:backend": "convex dev",
     "build": "tsc --noEmit -p . && vite build",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p convex",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:dev": "convex dev --once && static-hosting upload --build"
   },
   "dependencies": {
     "@convex-dev/auth": "https://pkg.pr.new/@convex-dev/auth@reboot",
+    "@convex-dev/static-hosting": "^0.2.0",
     "convex": "^1.42.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
