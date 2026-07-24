@@ -1,192 +1,90 @@
-import { v } from "convex/values";
-import { api, internal } from "../convex/_generated/api.js";
-import {
-  DatabaseReader,
-  action,
-  internalAction,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
-import { withSession } from "./lib/withSession.js";
-import { createChallenge, validateChallenge } from "./challenges.js";
-import { Doc } from "./_generated/dataModel.js";
+import { ConvexError, v } from "convex/values";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { currentUserId, requireUser } from "./lib/access";
+import { isValidTimezone, todayInTz } from "./lib/days";
 
-const MaxOutstandingInvites = 20;
+/** Called by Convex Auth whenever an account signs up or in. */
+export const createOrUpdateUser = internalMutation({
+  args: {
+    provider: v.literal("password"),
+    providerAccountId: v.string(),
+    profile: v.any(),
+    userId: v.union(v.string(), v.null()),
+  },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    if (args.userId !== null) {
+      const existing = ctx.db.normalizeId("users", args.userId);
+      if (existing === null) {
+        throw new ConvexError(`Unknown user id: ${args.userId}`);
+      }
+      return existing;
+    }
+    const username =
+      typeof args.profile?.username === "string"
+        ? args.profile.username
+        : "anonymous";
+    return await ctx.db.insert("users", { username });
+  },
+});
 
-export const makeSession = mutation({
+export const me = query({
   args: {},
-  handler: async ({ db, scheduler }, {}) => {
-    return await db.insert("sessions", {});
-  },
-});
-
-export async function getUserByPhone(db: DatabaseReader, phone: string) {
-  const user = await db
-    .query("users")
-    .withIndex("phone", (q) => q.eq("phone", phone))
-    .unique();
-  return user;
-}
-
-export const editName = mutation(
-  withSession({
-    args: {
-      name: v.string(),
-    },
-    handler: async ({ db, scheduler, session }, { name }) => {
-      if (!session.userId) {
-        throw new Error(`Not logged in.`);
-      }
-      await db.patch(session.userId, { name });
-    },
-  })
-);
-
-export const invite = mutation(
-  withSession({
-    args: {
-      name: v.string(),
-      phone: v.string(),
-      groupId: v.id("groups"),
-    },
-    handler: async (ctx, { name, phone, groupId }) => {
-      const { db, session } = ctx;
-      if (!session.userId) {
-        throw new Error(`Not logged in.`);
-      }
-      const inviterId = session.userId;
-      const group = (await db.get(groupId))!;
-      if (!group.members.includes(session.userId)) {
-        throw new Error(`Inviter is not in the group.`);
-      }
-      const user = await getUserByPhone(db, phone);
-      if (user) {
-        if (user._id === session.userId) {
-          return { success: false, error: `Can't invite yourself.` };
-        }
-        if (user.groups.includes(groupId)) {
-          return { success: false, error: `User already in group.` };
-        }
-      }
-      const userId = user
-        ? user._id
-        : await db.insert("users", {
-            name,
-            phone,
-            groups: [],
-          });
-      const invites = await db
-        .query("invites")
-        .withIndex("inviteeId", (q) => q.eq("inviteeId", userId))
-        .collect();
-      if (invites.find((i) => i.groupId === groupId)) {
-        return { success: false, error: `User already invited to group.` };
-      }
-      const sentInvites = await db
-        .query("invites")
-        .withIndex("inviterId", (q) => q.eq("inviterId", inviterId))
-        .filter((q) => q.neq(q.field("status"), "accepted"))
-        .collect();
-      if (sentInvites.length >= MaxOutstandingInvites) {
-        return { success: false, error: `Too many outstanding invites.` };
-      }
-      await db.insert("invites", {
-        inviterId: session.userId,
-        inviteeId: userId,
-        groupId,
-        status: "pending",
-      });
-      return await logIn(ctx, { phone });
-    },
-  })
-);
-
-export const respondToInvite = mutation(
-  withSession({
-    args: {
-      inviteId: v.id("invites"),
-      status: v.union(v.literal("accepted"), v.literal("rejected")),
-    },
-    handler: async ({ db, scheduler, session }, { inviteId, status }) => {
-      if (!session.userId) {
-        throw new Error(`Not logged in.`);
-      }
-      const invite = (await db.get(inviteId))!;
-      if (session.userId !== invite.inviteeId) {
-        throw new Error(`Not your invite.`);
-      }
-      await db.patch(inviteId, { status });
-      if (status == "accepted") {
-        const group = (await db.get(invite.groupId))!;
-        await db.patch(invite.groupId, {
-          members: [...group.members, invite.inviteeId],
-        });
-      }
-    },
-  })
-);
-
-export const logIn = mutation({
-  args: {
-    phone: v.string(),
-  },
-  handler: async ({ db, scheduler }, { phone }) => {
-    const user = await getUserByPhone(db, phone);
-    if (!user) {
-      return { success: false, error: `User not found.` };
+  handler: async (ctx) => {
+    const userId = await currentUserId(ctx);
+    if (userId === null) {
+      return null;
     }
-    const result = await createChallenge(db, user._id);
-    if (result.success) {
-      await scheduler.runAfter(0, internal.users.sendChallengeSMS, {
-        userId: user._id,
-        code: result.challenge.code,
-      });
-      return { success: true } as const;
+    const user = await ctx.db.get(userId);
+    if (user === null) {
+      return null;
     }
-    return result;
+    return {
+      _id: user._id,
+      username: user.username,
+      name: user.name ?? user.username,
+      timezone: user.timezone ?? null,
+      today: todayInTz(user.timezone),
+    };
   },
 });
 
-export const logOut = mutation(
-  withSession({
-    args: {},
-    handler: async ({ db, scheduler, session }, {}) => {
-      await db.patch(session._id, { userId: undefined });
-    },
-  })
-);
-
-export const sendChallengeSMS = internalAction({
+export const updateProfile = mutation({
   args: {
-    userId: v.id("users"),
-    code: v.string(),
+    name: v.optional(v.string()),
+    timezone: v.optional(v.string()),
   },
-  handler: async ({ runMutation, scheduler }, { userId, code }) => {
-    // TODO send SMS
-    console.log("sending...", { userId, code });
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    if (args.timezone !== undefined && !isValidTimezone(args.timezone)) {
+      throw new ConvexError(`Unknown timezone: ${args.timezone}`);
+    }
+    const name = args.name?.trim();
+    if (name !== undefined && name.length === 0) {
+      throw new ConvexError("Name can't be empty.");
+    }
+    await ctx.db.patch(user._id, {
+      ...(name !== undefined ? { name } : {}),
+      ...(args.timezone !== undefined ? { timezone: args.timezone } : {}),
+    });
+    return null;
   },
 });
 
-export const attemptChallenge = mutation(
-  withSession({
-    args: {
-      phone: v.string(),
-      challenge: v.string(),
-    },
-    handler: async ({ db, scheduler, session }, { phone, challenge }) => {
-      // TODO: check challenge
-      const user = await getUserByPhone(db, phone);
-      if (!user) {
-        return { success: false, error: `User not found.` };
-      }
-      const result = await validateChallenge(db, user._id, challenge);
-      if (!result.success) {
-        return result;
-      }
-      await db.patch(session._id, { userId: user._id });
-      return { success: true } as const;
-    },
-  })
-);
+/**
+ * Called once after sign-in: fills in the timezone from the browser if the
+ * member hasn't picked one yet. Timezone drives every deadline, so we want
+ * a real value instead of the server default as early as possible.
+ */
+export const ensureTimezone = mutation({
+  args: { timezone: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    if (user.timezone === undefined && isValidTimezone(args.timezone)) {
+      await ctx.db.patch(user._id, { timezone: args.timezone });
+    }
+    return null;
+  },
+});
