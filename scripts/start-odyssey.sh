@@ -40,12 +40,20 @@ EOF
 )" | tr -d '"')
 echo "Started book: $BOOK_ID"
 
-npx convex run setup:backfillSubmission \
-  "{\"bookId\": \"$BOOK_ID\", \"sectionIndex\": 0, \"byName\": \"Peter\", \"day\": \"2026-07-20\"}"
+npx convex run setup:backfillSubmission "$(python3 -c "
+import json,sys
+print(json.dumps({
+  'bookId': '$BOOK_ID', 'sectionIndex': 0, 'byName': 'Peter', 'day': '2026-07-20',
+  'thoughts': 'Tough to imagine how Telemachus must feel. Missing father and having to watch all these suitors consume his household. It took me a bit to process but do you think he announces that he thinks his father isn’t coming back to keep the suitors off guard? Or does he really believe it?'
+}))")"
 echo "Backfilled Book 1 (Peter, Monday)"
 
-npx convex run setup:backfillSubmission \
-  "{\"bookId\": \"$BOOK_ID\", \"sectionIndex\": 1, \"byName\": \"Henry\", \"day\": \"2026-07-22\"}"
+npx convex run setup:backfillSubmission "$(python3 -c "
+import json,sys
+print(json.dumps({
+  'bookId': '$BOOK_ID', 'sectionIndex': 1, 'byName': 'Henry', 'day': '2026-07-22',
+  'thoughts': 'Interesting that Athena shows up as a man twice already. Probably because she is looking to command respect.\n\nI did a quick google and it seems like this is very common for the Greek gods male or female to be gender fluid depending if they needed to seem weak and vulnerable like a woman or powerful like a man. Shows what the Greeks thought of mortal men and women while gods and goddesses don’t have these stereotypes attached to them.'
+}))")"
 echo "Backfilled Book 2 (Henry, Wednesday)"
 
 echo "Done. Billy is up: Book 3, due 2026-07-24."

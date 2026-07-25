@@ -87,7 +87,8 @@ export default defineSchema({
     clubId: v.id("clubs"),
     title: v.string(),
     author: v.optional(v.string()),
-    suggestedBy: v.id("users"),
+    // Optional because imported pre-app books may not record who picked it.
+    suggestedBy: v.optional(v.id("users")),
     // The punishment the loser owes, set by whoever suggested the book.
     punishment: v.string(),
     status: v.union(

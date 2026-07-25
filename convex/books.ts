@@ -38,7 +38,7 @@ export async function startBookHelper(
     title: string;
     author?: string;
     punishment: string;
-    suggestedBy: Id<"users">;
+    suggestedBy?: Id<"users">;
     sectionTitles: string[];
     rotation?: Id<"users">[];
     pollId?: Id<"polls">;
@@ -274,7 +274,7 @@ export const detail = query({
       userIds.add(s.assignedTo);
       if (s.submission) userIds.add(s.submission.by);
     });
-    userIds.add(book.suggestedBy);
+    if (book.suggestedBy !== undefined) userIds.add(book.suggestedBy);
     const names = new Map<Id<"users">, string>();
     for (const userId of userIds) {
       const u = await ctx.db.get(userId);
@@ -297,9 +297,17 @@ export const detail = query({
     }
 
     // Finished books show the frozen result; only live books recompute.
+    // Imported historical books may lack a result — bound their fallback by
+    // endedDay so they don't absorb clouds from later eras.
     const tallies =
       book.result?.tallies ??
-      (await tallyClouds(ctx, book.rotation, book.clubId, book.startedDay));
+      (await tallyClouds(
+        ctx,
+        book.rotation,
+        book.clubId,
+        book.startedDay,
+        book.status === "finished" ? book.endedDay : undefined,
+      ));
 
     return {
       book: {
@@ -310,7 +318,8 @@ export const detail = query({
         status: book.status,
         startedDay: book.startedDay,
         endedDay: book.endedDay ?? null,
-        suggestedBy: names.get(book.suggestedBy) ?? "?",
+        suggestedBy:
+          (book.suggestedBy && names.get(book.suggestedBy)) ?? null,
         result: book.result ?? null,
       },
       viewerId: viewer._id,
@@ -366,6 +375,7 @@ export const history = query({
           title: book.title,
           author: book.author ?? null,
           status: book.status,
+          startedDay: book.startedDay,
           endedDay: book.endedDay ?? null,
           punishment: book.punishment,
           loserNames,

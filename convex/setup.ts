@@ -17,26 +17,57 @@ async function memberByName(
   ctx: MutationCtx,
   clubId: Id<"clubs">,
   name: string,
+  // Historical imports may reference ex-members (ghost users, no membership).
+  includeGhosts = false,
 ): Promise<Doc<"users">> {
   const memberIds = await clubMemberIds(ctx, clubId);
-  const members = (
-    await Promise.all(memberIds.map((id) => ctx.db.get(id)))
-  ).filter((m) => m !== null);
+  const pool = includeGhosts
+    ? await ctx.db.query("users").collect()
+    : (await Promise.all(memberIds.map((id) => ctx.db.get(id)))).filter(
+        (m) => m !== null,
+      );
   const needle = name.trim().toLowerCase();
-  const found = members.filter(
+  const found = pool.filter(
     (m) =>
       (m.name ?? "").toLowerCase() === needle ||
       m.username.toLowerCase() === needle,
   );
   if (found.length !== 1) {
     throw new ConvexError(
-      `${found.length === 0 ? "No" : "Multiple"} members match "${name}". ` +
-        `Members: ` +
-        members.map((m) => `${m.name ?? "?"} (@${m.username})`).join(", "),
+      `${found.length === 0 ? "No" : "Multiple"} users match "${name}". ` +
+        `Candidates: ` +
+        pool.map((m) => `${m.name ?? "?"} (@${m.username})`).join(", "),
     );
   }
   return found[0];
 }
+
+/**
+ * A user row for a former member so historical books can reference them.
+ * No membership row, so they never accrue new obligations and can't log in.
+ */
+export const createGhostUser = internalMutation({
+  args: {
+    username: v.string(),
+    name: v.string(),
+    timezone: v.optional(v.string()),
+  },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("username", (q) => q.eq("username", args.username))
+      .unique();
+    if (existing !== null) {
+      return existing._id;
+    }
+    return await ctx.db.insert("users", {
+      username: args.username,
+      name: args.name,
+      timezone: args.timezone,
+    });
+  },
+});
 
 /**
  * Start a book with an explicit rotation and suggester, matched by display
@@ -156,6 +187,180 @@ export const backfillSubmission = internalMutation({
       await finishBook(ctx, book);
     }
     return null;
+  },
+});
+
+/**
+ * Import a whole finished book from the club's chat archive in one call:
+ * the book row, one section per parsed submission (assigned to whoever
+ * actually submitted), and the official final tally when the chat recorded
+ * one. No cloud ledger entries — historical lateness is already baked into
+ * the official tallies. Idempotent on (clubId, title, startedDay).
+ */
+export const importPastBook = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    title: v.string(),
+    author: v.optional(v.string()),
+    punishment: v.optional(v.string()),
+    suggestedByName: v.optional(v.string()),
+    startedDay: v.string(),
+    endedDay: v.string(),
+    rotationNames: v.array(v.string()),
+    sections: v.array(
+      v.object({
+        title: v.string(),
+        byName: v.string(),
+        day: v.string(),
+        quotes: v.optional(v.string()),
+        thoughts: v.optional(v.string()),
+      }),
+    ),
+    resultTallies: v.optional(
+      v.array(v.object({ name: v.string(), clouds: v.number() })),
+    ),
+    loserNames: v.optional(v.array(v.string())),
+    // The club sometimes bails on a dud; no loser, no punishment.
+    abandoned: v.optional(v.boolean()),
+  },
+  returns: v.union(v.id("books"), v.null()),
+  handler: async (ctx, args) => {
+    const status = args.abandoned ? ("abandoned" as const) : ("finished" as const);
+    const already = await ctx.db
+      .query("books")
+      .withIndex("clubStatus", (q) =>
+        q.eq("clubId", args.clubId).eq("status", status),
+      )
+      .collect();
+    if (
+      already.some(
+        (b) => b.title === args.title && b.startedDay === args.startedDay,
+      )
+    ) {
+      return null; // re-run: skip
+    }
+
+    const resolve = (name: string) =>
+      memberByName(ctx, args.clubId, name, true);
+    const rotation = [];
+    for (const name of args.rotationNames) {
+      rotation.push((await resolve(name))._id);
+    }
+    let result;
+    if (args.resultTallies !== undefined) {
+      const tallies = [];
+      for (const t of args.resultTallies) {
+        tallies.push({ userId: (await resolve(t.name))._id, clouds: t.clouds });
+      }
+      const loserIds = [];
+      for (const name of args.loserNames ?? []) {
+        loserIds.push((await resolve(name))._id);
+      }
+      if (loserIds.length === 0 && tallies.length > 0) {
+        const worst = Math.max(...tallies.map((t) => t.clouds));
+        loserIds.push(
+          ...tallies
+            .filter((t) => t.clouds === worst && worst > 0)
+            .map((t) => t.userId),
+        );
+      }
+      result = { tallies, loserIds };
+    }
+
+    const bookId = await ctx.db.insert("books", {
+      clubId: args.clubId,
+      title: args.title.trim(),
+      author: args.author?.trim() || undefined,
+      suggestedBy: args.suggestedByName
+        ? (await resolve(args.suggestedByName))._id
+        : undefined,
+      punishment: args.punishment?.trim() || "(lost to chat history)",
+      status,
+      rotation,
+      startedDay: args.startedDay,
+      endedDay: args.endedDay,
+      result,
+    });
+    for (let i = 0; i < args.sections.length; i++) {
+      const s = args.sections[i];
+      const by = (await resolve(s.byName))._id;
+      await ctx.db.insert("sections", {
+        bookId,
+        index: i,
+        title: s.title.trim(),
+        assignedTo: by,
+        submission: {
+          by,
+          day: s.day,
+          at: Date.parse(`${s.day}T12:00:00Z`),
+          quotes: s.quotes ?? "",
+          thoughts: s.thoughts ?? "",
+          skip: false,
+        },
+      });
+    }
+    return bookId;
+  },
+});
+
+/**
+ * Bulk-import historical pushup check-ins (star/storm) parsed from the
+ * chat. Insert-if-absent: existing rows for a (user, day) win, so this
+ * never clobbers app-recorded data. Call in batches of ≤500.
+ */
+export const importCheckins = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    checkins: v.array(
+      v.object({
+        userName: v.string(),
+        day: v.string(),
+        status: checkinStatus,
+      }),
+    ),
+  },
+  returns: v.object({ inserted: v.number(), skipped: v.number() }),
+  handler: async (ctx, args) => {
+    const users = new Map<string, Doc<"users">>();
+    let inserted = 0;
+    let skipped = 0;
+    for (const c of args.checkins) {
+      let user = users.get(c.userName);
+      if (user === undefined) {
+        user = await memberByName(ctx, args.clubId, c.userName, true);
+        users.set(c.userName, user);
+      }
+      const existing = await ctx.db
+        .query("checkins")
+        .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", c.day))
+        .unique();
+      if (existing !== null) {
+        skipped += 1;
+        continue;
+      }
+      await ctx.db.insert("checkins", {
+        userId: user._id,
+        day: c.day,
+        status: c.status,
+      });
+      if (c.status === "storm") {
+        await ctx.db.insert("clouds", {
+          userId: user._id,
+          day: c.day,
+          count: 1,
+          source: "pushups_storm",
+        });
+      } else if (c.status === "missed") {
+        await ctx.db.insert("clouds", {
+          userId: user._id,
+          day: c.day,
+          count: 2,
+          source: "pushups_missed",
+        });
+      }
+      inserted += 1;
+    }
+    return { inserted, skipped };
   },
 });
 
