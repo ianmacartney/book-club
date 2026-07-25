@@ -5,17 +5,17 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { BookTab } from "./BookTab";
 import { ClubTab } from "./ClubTab";
+import { LibraryTab } from "./LibraryTab";
 import { StandingsTab } from "./StandingsTab";
-import { VoteTab } from "./VoteTab";
 import { errorMessage, prettyDay } from "./lib";
 import { Button, Card, ErrorNote, Pill } from "./ui";
 
-type Tab = "today" | "book" | "vote" | "standings" | "club";
+type Tab = "today" | "book" | "library" | "standings" | "club";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "⭐️ Today" },
   { id: "book", label: "📖 Book" },
-  { id: "vote", label: "🗳️ Vote" },
+  { id: "library", label: "🏛️ Library" },
   { id: "standings", label: "⛈️ Clouds" },
   { id: "club", label: "👥 Club" },
 ];
@@ -67,7 +67,7 @@ export function ClubView(props: {
 
       {tab === "today" && <TodayTab home={home} />}
       {tab === "book" && <BookTab clubId={props.clubId} home={home} />}
-      {tab === "vote" && <VoteTab clubId={props.clubId} />}
+      {tab === "library" && <LibraryTab clubId={props.clubId} home={home} />}
       {tab === "standings" && (
         <StandingsTab clubId={props.clubId} home={home} />
       )}

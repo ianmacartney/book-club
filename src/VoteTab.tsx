@@ -7,7 +7,7 @@ import { StartBookForm } from "./BookTab";
 import { errorMessage } from "./lib";
 import { Button, Card, ErrorNote, Field, Pill, inputClass } from "./ui";
 
-export function VoteTab(props: { clubId: Id<"clubs"> }) {
+export function NextBookPoll(props: { clubId: Id<"clubs"> }) {
   const poll = useQuery(api.polls.state, { clubId: props.clubId });
   const startPoll = useMutation(api.polls.start);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +19,7 @@ export function VoteTab(props: { clubId: Id<"clubs"> }) {
   if (poll === null || (poll.status === "done" && poll.winnerNominationId === null)) {
     return (
       <Card>
-        <h2 className="mb-1 text-lg font-bold">Pick the next book</h2>
+        <h2 className="mb-1 text-lg font-bold">🗳️ Pick the next book</h2>
         <p className="mb-3 text-sm text-ink/60">
           Everyone puts up two books (with a punishment attached), everyone
           votes for up to two — at most one of their own — and the top two go

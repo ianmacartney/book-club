@@ -17,17 +17,16 @@ export function BookTab(props: { clubId: Id<"clubs">; home: Home }) {
       <Card>
         <h2 className="mb-1 text-lg font-bold">No book on the go</h2>
         <p className="text-sm text-ink/60">
-          Head to the <strong>🗳️ Vote</strong> tab to pick the next book
+          Head to the <strong>🏛️ Library</strong> tab to pick the next book
           together — or start one directly below if the club already agreed.
         </p>
       </Card>
       <StartBookForm clubId={props.clubId} />
-      <BookHistory clubId={props.clubId} />
     </div>
   );
 }
 
-function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }) {
+export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }) {
   const detail = useQuery(api.books.detail, { bookId: props.bookId });
   const abandon = useMutation(api.books.abandon);
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +50,9 @@ function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }) {
           </Pill>
         </div>
         <p className="mt-3 text-sm">
-          <span className="font-semibold">☠️ Stakes</span> (set by{" "}
-          {book.suggestedBy}): {book.punishment}
+          <span className="font-semibold">☠️ Stakes</span>
+          {book.suggestedBy ? ` (set by ${book.suggestedBy})` : ""}:{" "}
+          {book.punishment}
         </p>
         {book.result && (
           <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm">
@@ -339,32 +339,3 @@ export function StartBookForm(props: {
   );
 }
 
-function BookHistory(props: { clubId: Id<"clubs"> }) {
-  const history = useQuery(api.books.history, { clubId: props.clubId });
-  if (!history || history.length === 0) return null;
-  return (
-    <Card>
-      <h2 className="mb-3 text-lg font-bold">Shelf of honor</h2>
-      <ul className="space-y-2 text-sm">
-        {history.map((b) => (
-          <li key={b._id} className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-semibold">
-                {b.title}
-                {b.author && <span className="text-ink/50"> — {b.author}</span>}
-              </p>
-              {b.status === "finished" && b.loserNames.length > 0 && (
-                <p className="text-ink/60">
-                  ☠️ {b.loserNames.join(", ")} owed: {b.punishment}
-                </p>
-              )}
-            </div>
-            <Pill tone={b.status === "finished" ? "ok" : "muted"}>
-              {b.status}
-            </Pill>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
