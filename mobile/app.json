@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Push Up Club",
+    "slug": "push-up-club",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "pushupclub",
+    "backgroundColor": "#F4EFE5",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.pushupclub.app"
+    },
+    "android": {
+      "package": "com.pushupclub.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#F4EFE5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#8A3B2A"
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "convexUrl": "https://secret-barracuda-975.convex.cloud"
+    },
+    "experiments": {
+      "onDemandFilesystem": "UNSTABLE_ALLOW_ALL"
+    }
+  }
+}
