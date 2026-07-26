@@ -4,6 +4,21 @@ Vite + React SPA on a Convex backend. Auth via `@convex-dev/auth` (component
 mounted at `/auth`). The frontend is served by the `@convex-dev/static-hosting`
 component, which owns `/` on the deployment's `.convex.site` domain.
 
+## Mobile app (`mobile/`)
+
+Expo (SDK 57) React Native app, chat-feed-first design (`convex/feed.ts`
+composes check-ins, submissions, and summaries into the timeline). **Live
+against the dev deployment** with Convex Auth v2 (username+password, tokens
+in expo-secure-store); how the wiring works — including the SDK 57 Metro
+`onDemandFilesystem: "UNSTABLE_ALLOW_ALL"` gotcha for importing the shared
+`convex/_generated` — is documented in `mobile/NOTES-auth.md`. Shipping to
+the club is `mobile/DISTRIBUTION.md`. Push notifications are live
+server-side via the `@convex-dev/expo-push-notifications` component
+(`convex/notifications.ts`): submission/your-turn pushes, a per-user daily
+reminder cron (15-min interval), and opt-in star announcements. Typecheck
+with `cd mobile && npx tsc --noEmit`; smoke-test the bundle with
+`npx expo export --platform ios`.
+
 ## Deploying (hosting)
 
 The app is hosted on Convex static hosting. **Dev deployment** is live at
