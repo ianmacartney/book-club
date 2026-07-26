@@ -21,6 +21,16 @@ export function todayInTz(timezone: string | undefined): string {
   return dayInTz(Date.now(), timezone);
 }
 
+/** Current wall-clock time as "HH:mm" (24h) in the given timezone. */
+export function timeNowInTz(timezone: string | undefined): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone ?? DEFAULT_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date());
+}
+
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);

@@ -2,6 +2,7 @@ import { defineApp } from "convex/server";
 import { v } from "convex/values";
 import core from "@convex-dev/auth/core/convex.config.js";
 import passwordProvider from "@convex-dev/auth/providers/password/convex.config.js";
+import pushNotifications from "@convex-dev/expo-push-notifications/convex.config.js";
 import staticHosting from "@convex-dev/static-hosting/convex.config.js";
 
 // The static hosting component owns "/" so the SPA is served at the root.
@@ -25,5 +26,8 @@ app.use(core, {
   },
 });
 app.use(passwordProvider);
+
+// Expo push notifications for the mobile app (see convex/notifications.ts).
+app.use(pushNotifications);
 
 export default app;

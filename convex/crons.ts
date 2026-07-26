@@ -13,6 +13,16 @@ crons.interval(
   {},
 );
 
+// Fine-grained because reminder times are member-local wall-clock times;
+// each run is a cheap scan of notificationPrefs and sends at most one nudge
+// per member per local day.
+crons.interval(
+  "pushup reminders",
+  { minutes: 15 },
+  internal.notifications.sendReminders,
+  {},
+);
+
 crons.weekly(
   "sunday summary",
   { dayOfWeek: "sunday", hourUTC: 20, minuteUTC: 0 },

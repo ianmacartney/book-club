@@ -83,6 +83,21 @@ export default defineSchema({
     // For idempotent late-day accrual by the cron.
     .index("sectionDay", ["sectionId", "day"]),
 
+  // Per-user push notification preferences (Expo tokens live in the
+  // pushNotifications component; this holds the app-level choices).
+  notificationPrefs: defineTable({
+    userId: v.id("users"),
+    // "HH:mm" in the member's own timezone — nudge if they haven't reported
+    // pushups by then. Unset = no reminder.
+    reminderTime: v.optional(v.string()),
+    // Last local day a reminder was sent, so the cron fires at most once/day.
+    reminderSentDay: v.optional(v.string()),
+    // Opt-in: hear about every ⭐️ other members log.
+    notifyOnStars: v.boolean(),
+    // On by default: section submissions and book finishes.
+    notifyOnSubmissions: v.boolean(),
+  }).index("userId", ["userId"]),
+
   books: defineTable({
     clubId: v.id("clubs"),
     title: v.string(),

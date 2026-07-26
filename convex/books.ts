@@ -8,6 +8,10 @@ import {
 } from "./lib/access";
 import { accrueLateClouds, tallyClouds } from "./lib/clouds";
 import { addDays, diffDays, todayInTz } from "./lib/days";
+import {
+  notifyBookFinished,
+  notifySectionSubmitted,
+} from "./notifications";
 
 export const DAYS_PER_SECTION = 2;
 
@@ -194,15 +198,45 @@ export const submitSection = mutation({
       },
     });
 
+    const memberIds = await clubMemberIds(ctx, book.clubId);
     const next = sections.find((s) => s.index === section.index + 1);
     if (next !== undefined) {
       // The next reader's 2 calendar days start now, in their timezone.
       const nextReader = await ctx.db.get(next.assignedTo);
-      await ctx.db.patch(next._id, {
-        dueDay: addDays(todayInTz(nextReader?.timezone), DAYS_PER_SECTION),
+      const nextDueDay = addDays(
+        todayInTz(nextReader?.timezone),
+        DAYS_PER_SECTION,
+      );
+      await ctx.db.patch(next._id, { dueDay: nextDueDay });
+      await notifySectionSubmitted(ctx, {
+        book,
+        sectionTitle: section.title,
+        by: user,
+        assigneeName:
+          assignee?.name ?? assignee?.username ?? "the assignee",
+        skip: isSkip,
+        memberIds,
+        next: {
+          assigneeId: next.assignedTo,
+          title: next.title,
+          dueDay: nextDueDay,
+        },
       });
     } else {
       await finishBook(ctx, book);
+      const finished = await ctx.db.get(book._id);
+      const loserNames = await Promise.all(
+        (finished?.result?.loserIds ?? []).map(async (id) => {
+          const u = await ctx.db.get(id);
+          return u?.name ?? u?.username ?? "?";
+        }),
+      );
+      await notifyBookFinished(ctx, {
+        book,
+        memberIds,
+        byId: user._id,
+        loserNames,
+      });
     }
     return null;
   },

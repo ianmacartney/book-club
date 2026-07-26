@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { currentUserId, requireUser } from "./lib/access";
 import { addDays, isPushupDay, todayInTz } from "./lib/days";
+import { notifyStarLogged } from "./notifications";
 
 /**
  * Report today's pushups: ⭐️ if you did them, ⛈️ if you didn't (1 cloud).
@@ -51,6 +52,10 @@ export const submit = mutation({
       });
     } else {
       await ctx.db.patch(existing._id, { status: args.status });
+    }
+    // Announce a fresh ⭐️ to clubmates who opted in (not on re-toggles).
+    if (args.status === "star" && existing?.status !== "star") {
+      await notifyStarLogged(ctx, user);
     }
     return null;
   },
