@@ -23,6 +23,16 @@ dev deployment (`expo.extra.convexUrl` in app.json).
   `src/types.ts`. The feed pages backwards through day windows with
   `useQueries`, pinning older windows by their `nextThrough` cursor.
 
+## React Native runtime gotcha: `window.addEventListener`
+
+RN defines `window` (it's the global object) but no DOM event APIs. The auth
+session manager's cross-tab storage listener guards on `typeof window`
+alone, so `init()` threw `TypeError: undefined is not a function` at launch.
+`src/polyfills.ts` (first import in index.ts) installs no-op
+`window.addEventListener`/`removeEventListener`. Upstream fix for the auth
+package: guard on `typeof window.addEventListener === "function"` in
+`#attachStorageListener`/`dispose` instead.
+
 ## The Metro gotcha (SDK 57) — read before touching config
 
 Importing the shared `../convex/_generated/api` from inside `mobile/`
