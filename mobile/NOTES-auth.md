@@ -57,6 +57,15 @@ root — at the cost of dependency hoisting.
 Keep the root and mobile `convex` package versions aligned — the generated
 `api.js` resolves `convex` from the root `node_modules`.
 
+**The `onDemandFilesystem` flag fixes *local* dev, not EAS Build.** EAS uploads
+only `mobile/`, so in the cloud the parent `convex/` doesn't exist at all and
+Metro can't resolve `../convex/_generated/api` (bundle-phase failure). That's
+handled separately by `metro.config.js`, which redirects the *runtime* import
+to a local generic `convex-generated/api.js` (the generated `api` is just
+`anyApi`). Type-checking is untouched — the import paths still point at the
+real, schema-typed generated `.d.ts`. See DISTRIBUTION.md → "Gotchas that will
+bite a cloud build".
+
 ## Still open
 
 - Testing on a real device (`npx expo run:ios --device`); push needs a dev

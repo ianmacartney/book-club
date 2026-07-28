@@ -92,12 +92,22 @@ new binary so OTA and native stay matched.
   check). If EAS ever fails at install again after an auth bump, re-pin to the
   new commit sha `@reboot` resolves to (read it from the tarball's
   `x-commit-key` response header).
-- **The shared `../convex/_generated` import.** The app imports the generated
-  Convex API from *outside* `mobile/`. This works in the cloud only because
-  those files are **git-tracked** (EAS archives the whole repo from the git
-  root) and `app.json` has `experiments.onDemandFilesystem:
-  "UNSTABLE_ALLOW_ALL"` (lets Metro resolve out-of-root). Don't gitignore
-  `convex/_generated`, and don't remove that experiment flag.
+- **The shared `../convex/_generated` import (this failed build #4, the
+  Bundle JavaScript phase).** The app imports the generated Convex API from
+  *outside* `mobile/`. **EAS Build uploads only the `mobile/` directory** (no
+  npm workspaces), so the parent `convex/` is absent in the cloud and Metro's
+  bundle phase dies with "Unable to resolve module ../convex/_generated/api".
+  Reproduce locally by bundling an isolated copy of just `mobile/`:
+  `git archive HEAD:mobile | tar -x -C /tmp/x && cd /tmp/x && npm ci && npx expo export --platform ios`.
+  Fix (in place): the runtime `api.js` is fully generic (`api = anyApi`), so
+  `metro.config.js` redirects the runtime import of `.../convex/_generated/api`
+  to a local generic copy (`convex-generated/api.js`). The import paths in the
+  app are unchanged, so **`tsc` still type-checks against the real
+  schema-typed generated `.d.ts`**; only Metro's runtime resolution is
+  shimmed. `dataModel` is an `import type`, stripped before it hits the
+  resolver. Keep `experiments.onDemandFilesystem: "UNSTABLE_ALLOW_ALL"` (it's
+  what makes local dev/type resolution work out-of-root). If the app ever
+  imports a *new* value (not type) from `convex/_generated`, extend the shim.
 - **Reading a failed build's logs.** The web log viewer needs auth and the raw
   log file is a non-standard binary. Fastest path: `eas build:view <id>` for
   metadata, or query the GraphQL API with your CLI session for the structured
