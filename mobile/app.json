@@ -35,10 +35,14 @@
       "expo-secure-store"
     ],
     "extra": {
-      "convexUrl": "https://secret-barracuda-975.convex.cloud"
+      "convexUrl": "https://secret-barracuda-975.convex.cloud",
+      "eas": {
+        "projectId": "c6fb0140-1e57-48f1-841b-417c01e3cecf"
+      }
     },
     "experiments": {
       "onDemandFilesystem": "UNSTABLE_ALLOW_ALL"
-    }
+    },
+    "owner": "ianatconvex"
   }
 }
