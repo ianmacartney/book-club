@@ -15,12 +15,17 @@ changes; day-to-day JS/UI changes ship over the air in minutes.
      expire in 7 days without an MDM setup; don't).
    - Google Play developer account only if you ever want the Play Store
      ($25 once). For a handful of Androids, a direct APK link is simpler.
-2. **Wire the project**
+2. **Wire the project** — *already done in this repo.* The app is linked
+   (`extra.eas.projectId` in app.json, owner `ianatconvex`), `eas.json` has
+   `development`/`preview`/`production` profiles, and `expo-updates` is
+   installed + configured (`updates.url` + `runtimeVersion.appVersion` in
+   app.json). For reference, the from-scratch version is:
    ```sh
    cd mobile
    npm i -g eas-cli        # or use npx eas-cli
    eas init                # links the app, writes extra.eas.projectId
    eas build:configure     # writes eas.json with build profiles
+   npx expo install expo-updates && eas update:configure
    ```
    `eas init` writing `projectId` into app.json is also what makes
    `getExpoPushTokenAsync` work (see `src/notifications.ts`).
@@ -67,10 +72,42 @@ JS/asset changes reach every installed app on next launch — no TestFlight
 review, no re-install. Native changes (new Expo SDK, new native module) need
 a new `eas build` + TestFlight/APK round.
 
-Setup: `npx expo install expo-updates && eas update:configure` (one-time,
-adds the updates URL + runtime version to app.json). Keep
+Setup is already done (`expo-updates` installed, `eas update:configure` ran,
+adding the updates URL + `runtimeVersion` to app.json). Keep
 `runtimeVersion: { policy: "appVersion" }` so an OTA update never lands on
-an incompatible binary.
+an incompatible binary — bump `expo.version` in app.json whenever you ship a
+new binary so OTA and native stay matched.
+
+## Gotchas that will bite a cloud build
+
+- **pkg.pr.new integrity drift (the one that failed build #3).** `@convex-dev/auth`
+  is installed from a pkg.pr.new URL. It was pinned to the **moving `@reboot`
+  tag**, whose tarball upstream republishes in place. Local `npm ci` passes
+  from cache, but EAS's clean container re-downloads the *current* tarball,
+  its hash no longer matches the lockfile `integrity`, and `npm ci` dies with
+  EINTEGRITY in the **Install dependencies** phase. Fix: pin to the immutable
+  commit URL (`@convex-dev/auth@<sha>`, currently `@348fb3a`) and regenerate
+  the lockfile. Verify a fix survives a clean container before rebuilding:
+  `npm ci --cache /tmp/throwaway` (empty cache forces a fresh fetch + integrity
+  check). If EAS ever fails at install again after an auth bump, re-pin to the
+  new commit sha `@reboot` resolves to (read it from the tarball's
+  `x-commit-key` response header).
+- **The shared `../convex/_generated` import.** The app imports the generated
+  Convex API from *outside* `mobile/`. This works in the cloud only because
+  those files are **git-tracked** (EAS archives the whole repo from the git
+  root) and `app.json` has `experiments.onDemandFilesystem:
+  "UNSTABLE_ALLOW_ALL"` (lets Metro resolve out-of-root). Don't gitignore
+  `convex/_generated`, and don't remove that experiment flag.
+- **Reading a failed build's logs.** The web log viewer needs auth and the raw
+  log file is a non-standard binary. Fastest path: `eas build:view <id>` for
+  metadata, or query the GraphQL API with your CLI session for the structured
+  error:
+  ```sh
+  TOKEN=$(node -e "process.stdout.write(require(require('os').homedir()+'/.expo/state.json').auth.sessionSecret)")
+  curl -s https://api.expo.dev/graphql -H "expo-session: $TOKEN" \
+    -H 'content-type: application/json' \
+    -d '{"query":"query{builds{byId(buildId:\"<BUILD_ID>\"){error{errorCode message}}}}"}'
+  ```
 
 ## Suggested cadence for this club
 

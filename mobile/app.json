@@ -10,7 +10,10 @@
     "backgroundColor": "#F4EFE5",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.pushupclub.app"
+      "bundleIdentifier": "com.pushupclub.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.pushupclub.app",
@@ -43,6 +46,12 @@
     "experiments": {
       "onDemandFilesystem": "UNSTABLE_ALLOW_ALL"
     },
-    "owner": "ianatconvex"
+    "owner": "ianatconvex",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c6fb0140-1e57-48f1-841b-417c01e3cecf"
+    }
   }
 }
