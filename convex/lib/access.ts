@@ -38,14 +38,50 @@ export async function requireMembership(
   return user;
 }
 
+export async function clubMemberships(
+  ctx: QueryCtx | MutationCtx,
+  clubId: Id<"clubs">,
+): Promise<Doc<"memberships">[]> {
+  return await ctx.db
+    .query("memberships")
+    .withIndex("clubId", (q) => q.eq("clubId", clubId))
+    .collect();
+}
+
+export function isGhost(membership: Doc<"memberships">): boolean {
+  return membership.role === "ghost";
+}
+
+/**
+ * Full members only — the people with pushups at stake and a place in the
+ * reading rotation. Join order doubles as the default rotation order.
+ */
 export async function clubMemberIds(
   ctx: QueryCtx | MutationCtx,
   clubId: Id<"clubs">,
 ): Promise<Id<"users">[]> {
+  const memberships = await clubMemberships(ctx, clubId);
+  return memberships.filter((m) => !isGhost(m)).map((m) => m.userId);
+}
+
+/** Everyone with eyes on the club — members and ghosts. For notifications
+ * and feed visibility, not for obligations. */
+export async function clubRecipientIds(
+  ctx: QueryCtx | MutationCtx,
+  clubId: Id<"clubs">,
+): Promise<Id<"users">[]> {
+  const memberships = await clubMemberships(ctx, clubId);
+  return memberships.map((m) => m.userId);
+}
+
+/** Does this user owe pushups anywhere — i.e. hold any non-ghost membership? */
+export async function hasActiveMembership(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<boolean> {
   const memberships = await ctx.db
     .query("memberships")
-    .withIndex("clubId", (q) => q.eq("clubId", clubId))
+    .withIndex("userId", (q) => q.eq("userId", userId))
     .collect();
-  // Join order doubles as the default reading-rotation order.
-  return memberships.map((m) => m.userId);
+  return memberships.some((m) => !isGhost(m));
 }

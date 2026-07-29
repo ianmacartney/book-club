@@ -1,6 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { currentUserId, requireUser } from "./lib/access";
+import {
+  currentUserId,
+  hasActiveMembership,
+  requireUser,
+} from "./lib/access";
 import { addDays, isPushupDay, todayInTz } from "./lib/days";
 import { notifyStarLogged } from "./notifications";
 
@@ -15,6 +19,9 @@ export const submit = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    if (!(await hasActiveMembership(ctx, user._id))) {
+      throw new ConvexError("Ghosts owe no pushups — nothing to report.");
+    }
     const today = todayInTz(user.timezone);
     if (!isPushupDay(today)) {
       throw new ConvexError("Sunday is a rest day — no pushups required.");

@@ -70,6 +70,43 @@ export const createGhostUser = internalMutation({
 });
 
 /**
+ * Set a member's role: "ghost" watches the club (feed, library, standings)
+ * without obligations — no pushups, no reminders, no place in the rotation;
+ * "member" restores full standing. Creates the membership if the user has
+ * none (the path for giving an ex-member like Tucker read access), but note
+ * the rollover only bills full members from their membership's creation
+ * time, so a later ghost→member flip starts their clock then.
+ */
+export const setMemberRole = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    userName: v.string(),
+    role: v.union(v.literal("member"), v.literal("ghost")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await memberByName(ctx, args.clubId, args.userName, true);
+    const existing = await ctx.db
+      .query("memberships")
+      .withIndex("clubUser", (q) =>
+        q.eq("clubId", args.clubId).eq("userId", user._id),
+      )
+      .unique();
+    const role = args.role === "member" ? undefined : args.role;
+    if (existing === null) {
+      await ctx.db.insert("memberships", {
+        clubId: args.clubId,
+        userId: user._id,
+        role,
+      });
+    } else {
+      await ctx.db.patch(existing._id, { role });
+    }
+    return null;
+  },
+});
+
+/**
  * Start a book with an explicit rotation and suggester, matched by display
  * name or username — the in-app form only does join-order rotation and
  * credits the caller as suggester. `startedDay` backdates the start.

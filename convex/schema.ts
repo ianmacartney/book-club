@@ -45,6 +45,9 @@ export default defineSchema({
   memberships: defineTable({
     clubId: v.id("clubs"),
     userId: v.id("users"),
+    // Ghosts see everything (feed, library, standings) but owe nothing: no
+    // pushups, no place in the reading rotation. Absent = full member.
+    role: v.optional(v.union(v.literal("member"), v.literal("ghost"))),
   })
     .index("clubId", ["clubId"])
     .index("userId", ["userId"])

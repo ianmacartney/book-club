@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { QueryCtx, query } from "./_generated/server";
-import { clubMemberIds, requireMembership } from "./lib/access";
+import { clubRecipientIds, requireMembership } from "./lib/access";
 import { addDays, todayInTz } from "./lib/days";
 
 /**
@@ -109,7 +109,8 @@ export const forClub = query({
     const events: FeedEvent[] = [];
 
     // --- Check-ins: one indexed range scan per member ----------------------
-    const memberIds = await clubMemberIds(ctx, args.clubId);
+    // Ghosts included: an ex-member's historical check-ins stay in the feed.
+    const memberIds = await clubRecipientIds(ctx, args.clubId);
     for (const memberId of memberIds) {
       const checkins = await ctx.db
         .query("checkins")

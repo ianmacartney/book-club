@@ -21,17 +21,21 @@ export const processAll = internalMutation({
     // --- 1. Missed pushups -------------------------------------------------
     const users = await ctx.db.query("users").collect();
     for (const user of users) {
-      const membership = await ctx.db
+      // Ghost memberships carry no obligations, so only full memberships
+      // put pushups at stake (the oldest one starts the clock).
+      const memberships = await ctx.db
         .query("memberships")
         .withIndex("userId", (q) => q.eq("userId", user._id))
-        .first();
-      if (membership === null) {
-        continue; // not in any club yet, nothing at stake
+        .collect();
+      const active = memberships.filter((m) => m.role !== "ghost");
+      if (active.length === 0) {
+        continue; // not a full member of any club, nothing at stake
       }
       const today = todayInTz(user.timezone);
-      // Pushups are only at stake once you've joined a club (`.first()` on
-      // the index is the oldest membership).
-      const atStakeSince = dayInTz(membership._creationTime, user.timezone);
+      const atStakeSince = dayInTz(
+        Math.min(...active.map((m) => m._creationTime)),
+        user.timezone,
+      );
       for (let back = 1; back <= CATCH_UP_DAYS; back++) {
         const day = addDays(today, -back);
         // Not required on Sundays or before joining.

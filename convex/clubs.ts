@@ -1,8 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
-  clubMemberIds,
+  clubMemberships,
   currentUserId,
+  isGhost,
   requireMembership,
   requireUser,
 } from "./lib/access";
@@ -148,7 +149,10 @@ export const home = query({
     if (club === null) {
       throw new ConvexError("Club not found.");
     }
-    const memberIds = await clubMemberIds(ctx, args.clubId);
+    const memberships = await clubMemberships(ctx, args.clubId);
+    const memberIds = memberships
+      .filter((m) => !isGhost(m))
+      .map((m) => m.userId);
     const activeBook = await ctx.db
       .query("books")
       .withIndex("clubStatus", (q) =>
@@ -182,10 +186,25 @@ export const home = query({
       }),
     );
 
+    // Ghosts watch from the doorway: listed, but with no statuses or clouds.
+    const ghosts = await Promise.all(
+      memberships
+        .filter(isGhost)
+        .map(async (m) => {
+          const user = await ctx.db.get(m.userId);
+          return user === null
+            ? null
+            : { _id: user._id, name: user.name ?? user.username };
+        }),
+    );
+
     return {
       club: { _id: club._id, name: club.name },
       viewerId: viewer._id,
+      viewerIsGhost:
+        memberships.find((m) => m.userId === viewer._id)?.role === "ghost",
       members: members.filter((m) => m !== null),
+      ghosts: ghosts.filter((g) => g !== null),
       activeBookId: activeBook?._id ?? null,
     };
   },
