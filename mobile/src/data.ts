@@ -17,6 +17,7 @@ import type {
   FeedEvent,
   Home,
   Invite,
+  Me,
   NotificationSettings,
   ShelfBook,
 } from "./types";
@@ -66,6 +67,10 @@ function alertError(err: unknown): void {
 export function useHome(): Home | undefined {
   const clubId = useClubId();
   return useQuery(api.clubs.home, { clubId });
+}
+
+export function useMe(): Me | null | undefined {
+  return useQuery(api.users.me);
 }
 
 /** undefined = still loading; null = no active book. */
@@ -163,11 +168,19 @@ export function useActions(): {
     notifyOnSubmissions?: boolean;
   }) => void;
   registerPushToken: (token: string) => Promise<void>;
+  updateProfile: (args: {
+    name?: string;
+    timezone?: string;
+  }) => Promise<boolean>;
+  createInvite: (forName?: string) => Promise<string | null>;
 } {
   const checkIn = useMutation(api.pushups.submit);
   const submitSection = useMutation(api.books.submitSection);
   const updateSettings = useMutation(api.notifications.updateSettings);
   const registerPushToken = useMutation(api.notifications.registerPushToken);
+  const updateProfile = useMutation(api.users.updateProfile);
+  const createInvite = useMutation(api.clubs.createInvite);
+  const clubId = useClubId();
   return {
     checkIn: (status) => {
       checkIn({ status }).catch(alertError);
@@ -184,6 +197,23 @@ export function useActions(): {
     },
     registerPushToken: async (token) => {
       await registerPushToken({ token }).catch(alertError);
+    },
+    updateProfile: async (args) => {
+      try {
+        await updateProfile(args);
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
+    },
+    createInvite: async (forName) => {
+      try {
+        return await createInvite({ clubId, forName });
+      } catch (err) {
+        alertError(err);
+        return null;
+      }
     },
   };
 }

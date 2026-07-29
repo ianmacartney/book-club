@@ -220,7 +220,8 @@ function Composer() {
   const [writing, setWriting] = useState(false);
 
   const viewer = home?.members.find((m) => m._id === home.viewerId);
-  if (home === undefined || viewer === undefined) {
+  // Ghosts watch the feed; they have nothing to report and no turns.
+  if (home === undefined || home.viewerIsGhost || viewer === undefined) {
     return null;
   }
 

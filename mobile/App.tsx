@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import {
   Authenticated,
   AuthLoading,
@@ -100,11 +101,31 @@ function SignedIn() {
 
 type Tab = "feed" | "book" | "library" | "club";
 
-const TABS: { id: Tab; label: string; glyph: string }[] = [
-  { id: "feed", label: "Feed", glyph: "☁︎" },
-  { id: "book", label: "Book", glyph: "❦" },
-  { id: "library", label: "Library", glyph: "≡" },
-  { id: "club", label: "Club", glyph: "◉" },
+const TABS: {
+  id: Tab;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  {
+    id: "feed",
+    label: "Feed",
+    icon: "chatbubbles-outline",
+    activeIcon: "chatbubbles",
+  },
+  { id: "book", label: "Book", icon: "book-outline", activeIcon: "book" },
+  {
+    id: "library",
+    label: "Library",
+    icon: "library-outline",
+    activeIcon: "library",
+  },
+  {
+    id: "club",
+    label: "Club",
+    icon: "settings-outline",
+    activeIcon: "settings",
+  },
 ];
 
 function Shell(props: { clubName: string }) {
@@ -135,9 +156,11 @@ function Shell(props: { clubName: string }) {
               style={styles.tabItem}
               onPress={() => setTab(t.id)}
             >
-              <Text style={[styles.tabGlyph, active && styles.tabGlyphActive]}>
-                {t.glyph}
-              </Text>
+              <Ionicons
+                name={active ? t.activeIcon : t.icon}
+                size={22}
+                color={active ? colors.accent : colors.inkFaint}
+              />
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
                 {t.label}
               </Text>
@@ -171,9 +194,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.line,
     paddingTop: space(2),
   },
-  tabItem: { flex: 1, alignItems: "center", gap: 2 },
-  tabGlyph: { fontSize: 18, color: colors.inkFaint },
-  tabGlyphActive: { color: colors.accent },
+  tabItem: { flex: 1, alignItems: "center", gap: 3 },
   tabLabel: {
     fontSize: 11,
     fontWeight: "600",

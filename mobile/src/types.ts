@@ -21,8 +21,19 @@ export type Member = {
 export type Home = {
   club: { _id: string; name: string };
   viewerId: string;
+  // Ghosts see everything but owe nothing — no check-ins, no rotation.
+  viewerIsGhost: boolean;
   members: Member[];
+  ghosts: { _id: string; name: string }[];
   activeBookId: string | null;
+};
+
+export type Me = {
+  _id: string;
+  username: string;
+  name: string;
+  timezone: string | null;
+  today: string;
 };
 
 export type FeedEvent =

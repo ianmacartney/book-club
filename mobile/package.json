@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "@convex-dev/auth": "https://pkg.pr.new/@convex-dev/auth@348fb3a",
+    "@expo/vector-icons": "^15.0.2",
     "convex": "^1.42.3",
     "expo": "~57.0.8",
     "expo-constants": "~57.0.7",
