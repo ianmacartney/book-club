@@ -84,6 +84,14 @@ export function FeedScreen() {
         keyExtractor={(row) => row.key}
         renderItem={({ item }) => <FeedRow row={item} />}
         inverted
+        // Hold the reader's place: older pages appending at the array end
+        // and fresh events landing at index 0 must not shift the viewport.
+        // Near the bottom (visual "top" of an inverted list), snap to new
+        // events like a chat.
+        maintainVisibleContentPosition={{
+          minIndexForVisible: 0,
+          autoscrollToTopThreshold: 100,
+        }}
         onEndReached={() => hasMore && loadOlder()}
         onEndReachedThreshold={0.6}
         ListFooterComponent={

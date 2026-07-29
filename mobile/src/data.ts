@@ -110,6 +110,7 @@ export function useSettings(): NotificationSettings | undefined {
 export function useFeed(): {
   events: FeedEvent[] | undefined;
   hasMore: boolean;
+  loadingOlder: boolean;
   loadOlder: () => void;
 } {
   const clubId = useClubId();
@@ -129,11 +130,27 @@ export function useFeed(): {
   const results = useQueries(queries);
 
   return useMemo(() => {
+    // Collect loaded windows newest→oldest, stopping at the first one still
+    // in flight. Only ever the just-pinned OLDEST window can be loading, so
+    // everything already on screen keeps rendering — `events` must never
+    // revert to undefined mid-scroll, or the list unmounts and an inverted
+    // FlatList remounts at the bottom.
     const windows = [];
+    let loadingOlder = false;
     for (let i = 0; i <= cursors.length; i++) {
       const w = results[`w${i}`];
       if (w === undefined || w instanceof Error) {
-        return { events: undefined, hasMore: false, loadOlder: () => {} };
+        if (i === 0) {
+          // Nothing loaded yet: the true initial-load state.
+          return {
+            events: undefined,
+            hasMore: false,
+            loadingOlder: false,
+            loadOlder: () => {},
+          };
+        }
+        loadingOlder = true;
+        break;
       }
       windows.push(w);
     }
@@ -145,12 +162,16 @@ export function useFeed(): {
         .reverse()
         .flatMap((w) => w.events as FeedEvent[]),
       hasMore: oldest.hasMore as boolean,
-      loadOlder: () => {
-        const next = oldest.nextThrough as string;
-        setCursors((prev) =>
-          prev.includes(next) ? prev : [...prev, next],
-        );
-      },
+      loadingOlder,
+      // One window in flight at a time; onEndReached can fire repeatedly.
+      loadOlder: loadingOlder
+        ? () => {}
+        : () => {
+            const next = oldest.nextThrough as string;
+            setCursors((prev) =>
+              prev.includes(next) ? prev : [...prev, next],
+            );
+          },
     };
   }, [results, cursors]);
 }
