@@ -8,7 +8,7 @@
     "userInterfaceStyle": "light",
     "scheme": "pushupclub",
     "backgroundColor": "#F4EFE5",
-    "platforms": ["ios", "android"],
+    "platforms": ["ios"],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.pushupclub.app",

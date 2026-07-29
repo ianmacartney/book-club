@@ -55,13 +55,53 @@ TestFlight app, tap the invite, done. Builds live for 90 days — with EAS
 Update you'll rarely need a new binary, but expect to push a fresh build a
 few times a year.
 
-**Androids:**
-```sh
-eas build --platform android --profile preview   # produces an .apk
-```
-Send the build-page link from the Expo dashboard (or the artifact URL) to
-the chat; they enable "install from unknown sources" and tap it. New binary
-= new link, but again, EAS Update means that's rare.
+**Androids:** not a target right now — `expo.platforms` is `["ios"]`, so
+exports and updates are iOS-only (and preflight is ~2× faster for it). The
+`android` block in app.json is inert but kept for whenever that changes; flip
+`platforms` back to `["ios","android"]` and it wakes up.
+
+## What the club actually experiences
+
+| | `npm run submit:ios` (new binary) | `npm run ota:production` (OTA) |
+|---|---|---|
+| Notified? | Yes — TestFlight pushes "new build available" | **No notification at all** |
+| Action needed? | Open TestFlight, tap Update — unless they've turned on TestFlight's per-app **Automatic Updates**, which installs it for them | Nothing |
+| When it lands | After App Store Connect finishes processing (~5–15 min); internal testers need no review | Downloads silently in the background on next launch, **applies on the launch after that** |
+| Good for | native changes, and refreshing the binary so *new* installs start current | day-to-day JS/UI/asset changes |
+
+The OTA "applies on the *next* launch" detail is the one that surprises people:
+`expo-updates` boots from the bundle it already has, fetches the new one in the
+background, and swaps it in on the following cold start. So expect the club to
+see a change on their second open, not their first. Backgrounding and resuming
+doesn't count — it needs a cold start.
+
+An OTA only reaches builds whose `runtimeVersion` matches. Ours is the
+`appVersion` policy, and `production` in eas.json bumps only the *build number*
+(`autoIncrement` + `appVersionSource: remote`), so `version` stays `1.0.0` and
+one OTA covers every 1.0.0 build. Bumping `expo.version` in app.json splits that
+— old installs stop receiving new updates until they get a new binary.
+
+### How channels actually target people
+
+A channel isn't a group of people — **it's compiled into the binary** from the
+eas.json profile's `channel`. A build made with `--profile production` only ever
+looks at the `production` channel, so the club's installs *cannot* see preview
+updates; it's not a permission, it's that they never ask.
+
+"Preview targets my phone only" is therefore true only in the sense that you'd
+be the only person holding a preview-profile build. Two caveats before relying
+on it:
+
+- You have to actually build one (`eas build --profile preview`), and internal
+  distribution needs your device registered (`eas device:create`).
+- **It shares `com.pushupclub.app` with production**, so installing a preview
+  (or a local `npm run device` dev build) *replaces* the TestFlight app on your
+  phone. To run both side by side you'd need an app variant — app.config.js
+  switching `bundleIdentifier`/`name` off an env var.
+
+At four users, a staging channel usually isn't worth that. Test locally with
+`npm run device`, then `npm run ota:production`, and keep `npm run ota:rollback`
+in your back pocket.
 
 ## Testing a change before it goes out
 
