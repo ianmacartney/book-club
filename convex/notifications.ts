@@ -9,7 +9,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { requireUser } from "./lib/access";
+import { hasActiveMembership, requireUser } from "./lib/access";
 import { isPushupDay, timeNowInTz, todayInTz } from "./lib/days";
 
 /**
@@ -165,6 +165,22 @@ async function sendBatch(ctx: MutationCtx, sends: Send[]): Promise<void> {
 }
 
 /**
+ * Expo caps a push message at 4 KiB total, so give the summary most of the
+ * room and leave headroom for the title, data payload, and JSON overhead.
+ */
+const MAX_BODY_CHARS = 2000;
+
+function asBody(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return trimmed.length <= MAX_BODY_CHARS
+    ? trimmed
+    : `${trimmed.slice(0, MAX_BODY_CHARS - 1)}…`;
+}
+
+/**
  * A section landed: tell the club, and tell the next reader it's their turn.
  * The "you're up" is deadline-critical, so it ignores notifyOnSubmissions.
  */
@@ -176,11 +192,17 @@ export async function notifySectionSubmitted(
     by: Doc<"users">;
     assigneeName: string;
     skip: boolean;
+    thoughts: string;
     memberIds: Id<"users">[];
     next: { assigneeId: Id<"users">; title: string; dueDay: string } | null;
   },
 ): Promise<void> {
   const byName = displayName(args.by);
+  // Brief header, then as much of the write-up as a push allows.
+  const title = args.skip
+    ? `${byName} covered “${args.sectionTitle}” for ${args.assigneeName}`
+    : `${byName} finished “${args.sectionTitle}”`;
+  const body = asBody(args.thoughts);
   const sends: Send[] = [];
   for (const memberId of args.memberIds) {
     if (memberId === args.by._id) {
@@ -190,8 +212,8 @@ export async function notifySectionSubmitted(
       sends.push({
         userId: memberId,
         notification: {
-          title: `📖 You're up: ${args.next.title}`,
-          body: `${byName} finished “${args.sectionTitle}” in ${args.book.title}. Your section is due ${args.next.dueDay}.`,
+          title: `You're up: “${args.next.title}” — due ${args.next.dueDay}`,
+          body,
           sound: "default",
           data: { type: "your_turn", bookId: args.book._id },
         },
@@ -203,10 +225,8 @@ export async function notifySectionSubmitted(
       sends.push({
         userId: memberId,
         notification: {
-          title: `📖 ${byName} finished “${args.sectionTitle}”`,
-          body: args.skip
-            ? `Covered for ${args.assigneeName} (⛈️⛈️ skip) in ${args.book.title}.`
-            : `New quotes & thoughts in ${args.book.title}.`,
+          title,
+          body,
           data: { type: "submission", bookId: args.book._id },
         },
       });
@@ -269,7 +289,7 @@ export async function notifyStarLogged(
       sends.push({
         userId: memberId,
         notification: {
-          title: `⭐️ ${displayName(user)} did their pushups`,
+          title: `${displayName(user)}: ⭐️`,
           data: { type: "star" },
         },
       });
@@ -299,6 +319,10 @@ export const sendReminders = internalMutation({
       if (user === null) {
         continue;
       }
+      // Ghosts owe no pushups, so they get no reminders.
+      if (!(await hasActiveMembership(ctx, user._id))) {
+        continue;
+      }
       const today = todayInTz(user.timezone);
       if (
         !isPushupDay(today) ||
@@ -319,8 +343,7 @@ export const sendReminders = internalMutation({
       sends.push({
         userId: user._id,
         notification: {
-          title: "⭐️ Pushups today?",
-          body: "No word from you yet — report before midnight. Silence costs ⛈️⛈️.",
+          title: "We haven't heard from you yet today",
           sound: "default",
           data: { type: "reminder" },
         },

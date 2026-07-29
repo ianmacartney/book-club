@@ -3,6 +3,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, mutation, query } from "./_generated/server";
 import {
   clubMemberIds,
+  clubRecipientIds,
   requireMembership,
   requireUser,
 } from "./lib/access";
@@ -198,7 +199,9 @@ export const submitSection = mutation({
       },
     });
 
-    const memberIds = await clubMemberIds(ctx, book.clubId);
+    // Ghosts hear about submissions too — they follow along, they just
+    // don't owe anything.
+    const memberIds = await clubRecipientIds(ctx, book.clubId);
     const next = sections.find((s) => s.index === section.index + 1);
     if (next !== undefined) {
       // The next reader's 2 calendar days start now, in their timezone.
@@ -215,6 +218,7 @@ export const submitSection = mutation({
         assigneeName:
           assignee?.name ?? assignee?.username ?? "the assignee",
         skip: isSkip,
+        thoughts: args.thoughts,
         memberIds,
         next: {
           assigneeId: next.assignedTo,
