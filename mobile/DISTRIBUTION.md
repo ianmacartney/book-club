@@ -63,6 +63,49 @@ Send the build-page link from the Expo dashboard (or the artifact URL) to
 the chat; they enable "install from unknown sources" and tap it. New binary
 = new link, but again, EAS Update means that's rare.
 
+## Testing a change before it goes out
+
+Every cloud failure so far was reproducible locally in seconds. `npm run
+preflight` (~10s) is the gate — run it before any build or OTA push. It's
+wired into `build:*` and `ota:preview` so you can't skip it by accident.
+
+| Script | What it does | Catches |
+|---|---|---|
+| `npm run typecheck` | `tsc --noEmit` | type errors (OTA pushes bypass this otherwise) |
+| `npm run verify:deps` | re-downloads URL deps, compares to lockfile `integrity` | pkg.pr.new drift → install-phase EINTEGRITY |
+| `npm run verify:bundle` | plain `expo export` (fast) | ordinary bundle/syntax errors |
+| `npm run verify:eas` | `npm ci` + export in a **copy of only `mobile/`** | anything unresolvable outside `mobile/` |
+| `npm run preflight` | typecheck + verify:deps + verify:eas | both real-world build failures |
+| `npm run build:why` | prints a failed build's real error via GraphQL | saves fighting the log viewer |
+
+`verify:eas` is the important one: a plain `expo export` passes even when the
+cloud can't build, because the parent `convex/` is sitting next to you locally.
+It copies the git-visible contents of `mobile/` (tracked + untracked-but-not-
+ignored, so uncommitted work is included) to a temp dir where no parent
+`convex/` exists, then does a clean `npm ci` + export — the same conditions as
+the build container.
+
+### The recommended loop
+
+1. **Iterate locally.** `npm run dev` (Metro against a dev build) or
+   `npm run ios` for the simulator. Everything except push works here.
+2. **Push notifications need a real device** — the simulator can't register
+   with APNs at all. `npm run device` (cabled dev build) or install a
+   `preview`/TestFlight build, then grant permission in Club → Notifications.
+3. **Gate it:** `npm run preflight`.
+4. **Ship to yourself first:** `npm run ota:preview` publishes to the `preview`
+   channel, which only your preview build listens to — the club's production
+   installs don't see it.
+5. **Promote the exact bundle you tested:** `npm run ota:promote`
+   (`update:republish` from preview → production). This re-publishes the same
+   artifact rather than rebundling, so what the club gets is byte-for-byte what
+   you verified.
+6. **If it's bad:** `npm run ota:rollback` returns production to the update
+   embedded in the installed binary.
+
+Native changes (SDK bump, new native module, app.json plugin/permission edits)
+can't go out over the air — those need `npm run build:ios` + `submit:ios`.
+
 ## Day-to-day updates
 
 ```sh
@@ -87,18 +130,18 @@ new binary so OTA and native stay matched.
   its hash no longer matches the lockfile `integrity`, and `npm ci` dies with
   EINTEGRITY in the **Install dependencies** phase. Fix: pin to the immutable
   commit URL (`@convex-dev/auth@<sha>`, currently `@348fb3a`) and regenerate
-  the lockfile. Verify a fix survives a clean container before rebuilding:
-  `npm ci --cache /tmp/throwaway` (empty cache forces a fresh fetch + integrity
-  check). If EAS ever fails at install again after an auth bump, re-pin to the
-  new commit sha `@reboot` resolves to (read it from the tarball's
-  `x-commit-key` response header).
+  the lockfile. **`npm run verify:deps` detects this** and prints the exact
+  `npm pkg set` command to re-pin (it reads the current commit from the
+  tarball's `x-commit-key` header). Re-pin rather than going back to `@reboot`
+  after any auth bump, or the failure returns.
 - **The shared `../convex/_generated` import (this failed build #4, the
   Bundle JavaScript phase).** The app imports the generated Convex API from
   *outside* `mobile/`. **EAS Build uploads only the `mobile/` directory** (no
   npm workspaces), so the parent `convex/` is absent in the cloud and Metro's
   bundle phase dies with "Unable to resolve module ../convex/_generated/api".
-  Reproduce locally by bundling an isolated copy of just `mobile/`:
-  `git archive HEAD:mobile | tar -x -C /tmp/x && cd /tmp/x && npm ci && npx expo export --platform ios`.
+  **`npm run verify:eas` reproduces this locally** (bundles a copy of only
+  `mobile/`); a plain `expo export` will not, since the real `convex/` is right
+  next to you.
   Fix (in place): the runtime `api.js` is fully generic (`api = anyApi`), so
   `metro.config.js` redirects the runtime import of `.../convex/_generated/api`
   to a local generic copy (`convex-generated/api.js`). The import paths in the
@@ -108,25 +151,22 @@ new binary so OTA and native stay matched.
   resolver. Keep `experiments.onDemandFilesystem: "UNSTABLE_ALLOW_ALL"` (it's
   what makes local dev/type resolution work out-of-root). If the app ever
   imports a *new* value (not type) from `convex/_generated`, extend the shim.
-- **Reading a failed build's logs.** The web log viewer needs auth and the raw
-  log file is a non-standard binary. Fastest path: `eas build:view <id>` for
-  metadata, or query the GraphQL API with your CLI session for the structured
-  error:
-  ```sh
-  TOKEN=$(node -e "process.stdout.write(require(require('os').homedir()+'/.expo/state.json').auth.sessionSecret)")
-  curl -s https://api.expo.dev/graphql -H "expo-session: $TOKEN" \
-    -H 'content-type: application/json' \
-    -d '{"query":"query{builds{byId(buildId:\"<BUILD_ID>\"){error{errorCode message}}}}"}'
-  ```
+- **Reading a failed build's logs.** Use **`npm run build:why`** (most recent
+  failure) or `npm run build:why -- <build-id>`. It pulls the structured error
+  through the GraphQL API with the session eas-cli already stored, and suggests
+  which verify script reproduces it. Don't bother with the log artifact — it's
+  an undocumented binary blob, not gzip, and the web viewer needs auth.
 
 ## Suggested cadence for this club
 
-1. Wire auth (NOTES-auth.md), flip `DEMO_MODE` off, test on your own phone
-   with a dev build (`npx expo run:ios --device`).
-2. First EAS builds; you + one guinea pig (Henry's usually game) on
-   TestFlight for a week.
+1. Auth is wired (NOTES-auth.md). Test on your own phone with a dev build
+   (`npm run device`) — that's also the only way to exercise push, since the
+   simulator can't register with APNs.
+2. `npm run build:ios` then `npm run submit:ios`; you + one guinea pig
+   (Henry's usually game) on TestFlight for a week.
 3. Add the rest of the club. Announce in the chat that stars now live here.
-4. Iterate over EAS Update; rebuild binaries only on SDK bumps.
+4. Iterate over EAS Update (`ota:preview` → verify → `ota:promote`); rebuild
+   binaries only on SDK bumps or other native changes.
 
 ## Costs, total
 
