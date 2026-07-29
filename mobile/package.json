@@ -39,6 +39,7 @@
     "build:preview": "npm run preflight && eas build --platform ios --profile preview",
     "submit:ios": "eas submit --platform ios",
 
+    "ota:production": "npm run preflight && eas update --branch production",
     "ota:preview": "npm run preflight && eas update --branch preview",
     "ota:promote": "eas update:republish --branch preview --destination-branch production",
     "ota:rollback": "eas update:roll-back-to-embedded --branch production",

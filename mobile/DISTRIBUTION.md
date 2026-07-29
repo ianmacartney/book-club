@@ -102,15 +102,20 @@ the build container.
    with APNs at all. `npm run device` (cabled dev build) or install a
    `preview`/TestFlight build, then grant permission in Club → Notifications.
 3. **Gate it:** `npm run preflight`.
-4. **Ship to yourself first:** `npm run ota:preview` publishes to the `preview`
-   channel, which only your preview build listens to — the club's production
-   installs don't see it.
-5. **Promote the exact bundle you tested:** `npm run ota:promote`
-   (`update:republish` from preview → production). This re-publishes the same
-   artifact rather than rebundling, so what the club gets is byte-for-byte what
-   you verified.
-6. **If it's bad:** `npm run ota:rollback` returns production to the update
+4. **Ship it.** While you're the only one installed, `npm run ota:production`
+   straight to the club's channel is fine — preflight already gates it, and
+   `ota:rollback` is one command away.
+   Once the club is actually on production and a bad update would be visible to
+   them, switch to the two-step: `npm run ota:preview` (only your preview build
+   listens to that channel) → verify on your phone → `npm run ota:promote`,
+   which `update:republish`es the *same artifact* to production rather than
+   rebundling, so the club gets byte-for-byte what you checked.
+5. **If it's bad:** `npm run ota:rollback` returns production to the update
    embedded in the installed binary.
+
+Before an OTA that depends on new backend functions, make sure the deployment
+is current (`npm run deploy:dev` from the repo root) — the app talks to the dev
+deployment, and OTA'd UI calling an undeployed function fails at runtime.
 
 Native changes (SDK bump, new native module, app.json plugin/permission edits)
 can't go out over the air — those need `npm run build:ios` + `submit:ios`.
