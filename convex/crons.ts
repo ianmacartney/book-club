@@ -3,12 +3,12 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Runs hourly because every member's midnight is different: shortly after a
-// member's day ends we bill missed pushups, and shortly after a due day
-// lapses we bill overdue sections.
-crons.interval(
+// Runs hourly (on the hour) because every member's midnight is different:
+// shortly after a member's day ends we bill missed pushups, and shortly
+// after a due day lapses we bill overdue sections.
+crons.hourly(
   "daily rollover",
-  { hours: 1 },
+  { minuteUTC: 0 },
   internal.rollover.processAll,
   {},
 );
