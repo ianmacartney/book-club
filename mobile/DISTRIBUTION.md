@@ -66,14 +66,22 @@ exports and updates are iOS-only (and preflight is ~2× faster for it). The
 |---|---|---|
 | Notified? | Yes — TestFlight pushes "new build available" | **No notification at all** |
 | Action needed? | Open TestFlight, tap Update — unless they've turned on TestFlight's per-app **Automatic Updates**, which installs it for them | Nothing |
-| When it lands | After App Store Connect finishes processing (~5–15 min); internal testers need no review | Downloads silently in the background on next launch, **applies on the launch after that** |
+| When it lands | After App Store Connect finishes processing (~5–15 min); internal testers need no review | Downloads silently in the background, then a **"New version ready → Restart"** banner lets them apply it on the spot; ignored, it applies on the next cold start |
 | Good for | native changes, and refreshing the binary so *new* installs start current | day-to-day JS/UI/asset changes |
 
-The OTA "applies on the *next* launch" detail is the one that surprises people:
-`expo-updates` boots from the bundle it already has, fetches the new one in the
-background, and swaps it in on the following cold start. So expect the club to
-see a change on their second open, not their first. Backgrounding and resuming
-doesn't count — it needs a cold start.
+Left to itself, `expo-updates` boots from the bundle it already has, fetches the
+new one in the background, and only swaps it in on the following cold start — so
+the club would see a change on their second open, not their first. `src/updates.tsx`
+(`<UpdateBanner />`, mounted under the header in App.tsx) closes that gap: when a
+download finishes it shows "New version ready → Restart", which calls
+`Updates.reloadAsync()`. Dismissing it is fine — the update still applies on the
+next cold start. It also re-checks when the app returns to the foreground (at
+most every 5 minutes), because the built-in check only runs at launch and this
+app tends to stay open.
+
+The banner can't appear in a dev build or Expo Go (`Updates.isEnabled` is false
+there, and the check/fetch/reload APIs reject), so it only ever shows in
+TestFlight/production builds.
 
 An OTA only reaches builds whose `runtimeVersion` matches. Ours is the
 `appVersion` policy, and `production` in eas.json bumps only the *build number*

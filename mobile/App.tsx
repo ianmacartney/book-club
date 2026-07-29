@@ -24,6 +24,7 @@ import { FeedScreen } from "./src/screens/FeedScreen";
 import { JoinClubScreen } from "./src/screens/JoinClubScreen";
 import { LibraryScreen } from "./src/screens/LibraryScreen";
 import { colors, serif, space } from "./src/theme";
+import { UpdateBanner } from "./src/updates";
 
 export default function App() {
   return (
@@ -137,6 +138,8 @@ function Shell(props: { clubName: string }) {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{props.clubName}</Text>
       </View>
+
+      <UpdateBanner />
 
       <View style={styles.body}>
         {tab === "feed" && <FeedScreen />}
