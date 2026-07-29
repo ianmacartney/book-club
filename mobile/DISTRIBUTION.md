@@ -73,13 +73,22 @@ wired into `build:*` and `ota:preview` so you can't skip it by accident.
 |---|---|---|
 | `npm run typecheck` | `tsc --noEmit` | type errors (OTA pushes bypass this otherwise) |
 | `npm run verify:deps` | re-downloads URL deps, compares to lockfile `integrity` | pkg.pr.new drift → install-phase EINTEGRITY |
-| `npm run verify:bundle` | plain `expo export` (fast) | ordinary bundle/syntax errors |
+| `npm run verify:bundle` | local `expo export --platform all` | bundle errors on the path `eas update` uses |
 | `npm run verify:eas` | `npm ci` + export in a **copy of only `mobile/`** | anything unresolvable outside `mobile/` |
-| `npm run preflight` | typecheck + verify:deps + verify:eas | both real-world build failures |
+| `npm run preflight` | all four | every failure we've actually hit |
 | `npm run build:why` | prints a failed build's real error via GraphQL | saves fighting the log viewer |
 
-`verify:eas` is the important one: a plain `expo export` passes even when the
-cloud can't build, because the parent `convex/` is sitting next to you locally.
+**Both bundle checks are needed, because the two commands bundle in different
+places:** `eas build` bundles **in the cloud** from git-visible files only —
+that's what `verify:eas` mimics. `eas update` bundles **locally on your
+machine**, where gitignored state like `.expo/` also participates — that's what
+`verify:bundle` covers. A change can break one and not the other, which is
+exactly how the `platforms`/web failure below slipped through a sandbox-only
+check.
+
+`verify:eas` is the important one for builds: a plain `expo export` passes even
+when the cloud can't build, because the parent `convex/` is sitting next to you
+locally.
 It copies the git-visible contents of `mobile/` (tracked + untracked-but-not-
 ignored, so uncommitted work is included) to a temp dir where no parent
 `convex/` exists, then does a clean `npm ci` + export — the same conditions as
@@ -151,6 +160,16 @@ new binary so OTA and native stay matched.
   resolver. Keep `experiments.onDemandFilesystem: "UNSTABLE_ALLOW_ALL"` (it's
   what makes local dev/type resolution work out-of-root). If the app ever
   imports a *new* value (not type) from `convex/_generated`, extend the shim.
+- **`eas update` exporting the web platform.** `expo.platforms` was absent in
+  app.json, so it defaulted to `["ios","android","web"]`. Both `eas build` and
+  `eas update` export with `--platform=all`, so the export tried to bundle web,
+  which needs `react-native-web` — correctly not installed, since this is a
+  native-only app (the web experience is the separate Vite SPA at the repo
+  root). Symptom: `CommandError: It looks like you're trying to use web support
+  but don't have the required dependencies installed` → `Export failed` → `update
+  command failed`. Fix: `"platforms": ["ios", "android"]` in app.json (the inert
+  `web.favicon` block was dropped too). Don't add `react-native-web` — that
+  would ship a web bundle nobody uses. `npm run verify:bundle` catches this.
 - **Reading a failed build's logs.** Use **`npm run build:why`** (most recent
   failure) or `npm run build:why -- <build-id>`. It pulls the structured error
   through the GraphQL API with the session eas-cli already stored, and suggests

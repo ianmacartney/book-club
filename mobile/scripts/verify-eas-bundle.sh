@@ -43,8 +43,12 @@ fi
 echo "→ npm ci (clean install, as the build container does)"
 npm ci --prefix "$TMP" --silent
 
-echo "→ expo export --platform ios"
-if (cd "$TMP" && npx expo export --platform ios >"$TMP/../export.log" 2>&1); then
+# --platform all, matching what `eas build` and `eas update` actually run. With
+# only `ios` this check missed a web-platform export failure that broke
+# `eas update` (expo.platforms defaulted to include web, which needs
+# react-native-web).
+echo "→ expo export --platform all"
+if (cd "$TMP" && npx expo export --platform all >"$TMP/../export.log" 2>&1); then
   grep -E "iOS Bundled|Exported" "$TMP/../export.log" || true
   echo "✔ bundles cleanly in an EAS-equivalent sandbox"
 else

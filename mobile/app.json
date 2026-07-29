@@ -8,6 +8,7 @@
     "userInterfaceStyle": "light",
     "scheme": "pushupclub",
     "backgroundColor": "#F4EFE5",
+    "platforms": ["ios", "android"],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.pushupclub.app",
@@ -24,9 +25,6 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       [

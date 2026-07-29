@@ -25,16 +25,15 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web",
 
     "dev": "expo start --dev-client",
     "device": "expo run:ios --device",
 
     "typecheck": "tsc --noEmit",
     "verify:deps": "node scripts/verify-deps.mjs",
-    "verify:bundle": "expo export --platform ios --output-dir /tmp/pushupclub-verify-bundle && rm -rf /tmp/pushupclub-verify-bundle",
+    "verify:bundle": "expo export --platform all --output-dir /tmp/pushupclub-verify-bundle && rm -rf /tmp/pushupclub-verify-bundle",
     "verify:eas": "bash scripts/verify-eas-bundle.sh",
-    "preflight": "npm run typecheck && npm run verify:deps && npm run verify:eas",
+    "preflight": "npm run typecheck && npm run verify:deps && npm run verify:bundle && npm run verify:eas",
 
     "build:ios": "npm run preflight && eas build --platform ios --profile production",
     "build:preview": "npm run preflight && eas build --platform ios --profile preview",
