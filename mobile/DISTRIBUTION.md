@@ -168,6 +168,32 @@ deployment, and OTA'd UI calling an undeployed function fails at runtime.
 Native changes (SDK bump, new native module, app.json plugin/permission edits)
 can't go out over the air — those need `npm run build:ios` + `submit:ios`.
 
+### Release tags
+
+Shipping tags the commit, so months later you can answer "which code is the club
+running?" without guessing. It's wired into the ship scripts — nothing to
+remember:
+
+| Tag | Written by |
+|---|---|
+| `mobile-ota/<timestamp>` | `npm run ota:production` |
+| `mobile-build/<timestamp>` | `npm run build:ios` |
+| `web-dev/<timestamp>` | `npm run deploy:dev` (repo root) |
+
+`npm run releases` (repo root) lists them newest-first with their annotations —
+commit, subject, and the app version that gates OTA delivery.
+
+Those scripts **refuse to ship a dirty tree**, and deliberately check *before*
+doing any work rather than after. `eas update` and `vite build` bundle the
+working tree, so shipping with uncommitted changes publishes code that exists in
+no commit — and the tag would point at something you didn't ship. `ALLOW_DIRTY=1
+npm run ota:production` overrides it and skips the tag, which is occasionally
+right for a hotfix and never right routinely.
+
+`ota:preview` and `ota:promote` aren't tagged: preview is scratch space, and
+`promote` republishes an artifact built from an older commit, so a tag on HEAD
+would misattribute it. The EAS dashboard is the record for those.
+
 ## Day-to-day updates
 
 ```sh

@@ -35,11 +35,14 @@
     "verify:eas": "bash scripts/verify-eas-bundle.sh",
     "preflight": "npm run typecheck && npm run verify:deps && npm run verify:bundle && npm run verify:eas",
 
-    "build:ios": "npm run preflight && eas build --platform ios --profile production",
+    "ship:check": "bash ../scripts/tag-release.sh --check",
+    "tag": "bash ../scripts/tag-release.sh",
+
+    "build:ios": "npm run ship:check && npm run preflight && eas build --platform ios --profile production && npm run tag -- mobile-build",
     "build:preview": "npm run preflight && eas build --platform ios --profile preview",
     "submit:ios": "eas submit --platform ios",
 
-    "ota:production": "npm run preflight && eas update --branch production",
+    "ota:production": "npm run ship:check && npm run preflight && eas update --branch production && npm run tag -- mobile-ota",
     "ota:preview": "npm run preflight && eas update --branch preview",
     "ota:promote": "eas update:republish --branch preview --destination-branch production",
     "ota:rollback": "eas update:roll-back-to-embedded --branch production",

@@ -36,6 +36,13 @@ frontend to the **dev** deployment (`static-hosting upload --build`). The
 `--build` step runs `npm run build`, which typechecks first, so a broken build
 will not ship.
 
+**Every deploy tags the commit it shipped** (`scripts/tag-release.sh`, wired into
+the deploy/ship scripts) so "what's actually running?" is answerable from git.
+Kinds: `web-dev`, `mobile-ota`, `mobile-build`. `npm run releases` lists them
+newest-first. Because publishing bundles the *working tree*, the scripts refuse
+to ship a dirty tree — commit first, or `ALLOW_DIRTY=1 npm run …` to ship
+untagged (then the deployed code exists nowhere in git, so don't).
+
 Notes for agents:
 - **Don't re-deploy after every edit.** Static hosting is a publish target, not
   a dev server. During active work use `npm run dev` (Vite HMR + `convex dev`).

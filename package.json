@@ -10,7 +10,10 @@
     "build": "tsc --noEmit -p . && vite build",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p convex",
     "preview": "vite preview",
-    "deploy:dev": "convex dev --once && static-hosting upload --build"
+    "deploy:dev": "npm run ship:check && convex dev --once && static-hosting upload --build && npm run tag -- web-dev",
+    "ship:check": "bash scripts/tag-release.sh --check",
+    "tag": "bash scripts/tag-release.sh",
+    "releases": "git tag -n99 --sort=-creatordate | head -60"
   },
   "dependencies": {
     "@convex-dev/auth": "https://pkg.pr.new/@convex-dev/auth@reboot",
