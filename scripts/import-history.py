@@ -52,7 +52,7 @@ def run(fn: str, args: dict):
 # 1. Ghost user for Tucker (early member, not coming back).
 print("Creating ghost user Tucker…")
 run("setup:createGhostUser", {
-    "username": "tucker-ghost",
+    "username": "Tucker",
     "name": "Tucker",
     "timezone": "America/New_York",
 })

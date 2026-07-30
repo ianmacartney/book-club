@@ -13,6 +13,7 @@
     "deploy:dev": "npm run ship:check && convex dev --once && static-hosting upload --build && npm run tag -- web-dev",
     "ship:check": "bash scripts/tag-release.sh --check",
     "tag": "bash scripts/tag-release.sh",
+    "lint": "eslint convex",
     "releases": "git tag -n99 --sort=-creatordate | head -60"
   },
   "dependencies": {
@@ -24,11 +25,14 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@convex-dev/eslint-plugin": "^2.0.0",
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "eslint": "^9.39.5",
     "npm-run-all2": "^8.0.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.0",

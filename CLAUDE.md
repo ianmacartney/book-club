@@ -81,7 +81,7 @@ Club: "Push Up Club" — id `kh7bzpeb6gfb3ty6s1qwhqe3kh8b4fhe`.
 | Billy | Bward006 | America/New_York | +13157203272 |
 | Ian S | iansugg@gmail.com | America/Denver | +13039468395 |
 | Ian M | Ian M | America/Los_Angeles | "me" in exports |
-| Tucker | tucker-ghost | America/New_York | +12696153899 — **ghost**: ex-member (2018–2021) with a `role: "ghost"` membership; watches the club (feed, library, standings) but accrues nothing, and is excluded from every reading rotation. His row is cited by 305 checkins, 12 books, 28 sections — never delete or merge it |
+| Tucker | Tucker | America/New_York | +12696153899 — **ghost**: ex-member (2018–2021) with a `role: "ghost"` membership; watches the club (feed, library, standings) but accrues nothing, and is excluded from every reading rotation. His row is cited by 305 checkins, 12 books, 28 sections — never delete or merge it |
 
 Watch out: "Schoony" is HENRY's username (not a Billy nickname). "Pete" =
 Peter. Admin mutations match members by display name OR username,
@@ -137,6 +137,11 @@ npx convex run setup:setMemberRole \
 # Delete a duplicate identity from an accidental second sign-up. Refuses
 # unless the row is unreferenced everywhere, so it can't eat a real member:
 npx convex run setup:deleteOrphanUser '{"userId":"<usersId>"}'
+
+# Change the username someone types to sign in. Refuses if another row already
+# answers to it (by name or username) or if another account has claimed it:
+npx convex run setup:renameUsername \
+  '{"clubId":"<club>","userName":"Tucker","newUsername":"Tucker"}'
 
 # Historical imports: setup:importPastBook (whole finished/abandoned book,
 # dedupes on title+startedDay), setup:importCheckins (bulk, insert-if-absent,

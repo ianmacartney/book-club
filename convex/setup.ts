@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { components } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, internalMutation } from "./_generated/server";
 import { DAYS_PER_SECTION, finishBook, startBookHelper } from "./books";
@@ -54,12 +55,18 @@ export const createGhostUser = internalMutation({
   },
   returns: v.id("users"),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("username", (q) => q.eq("username", args.username))
-      .unique();
-    if (existing !== null) {
-      return existing._id;
+    // Match on username OR display name, case-insensitively: this runs from
+    // `scripts/import-history.py`, and a re-run after someone was renamed must
+    // not fork a second row for the same person.
+    const username = args.username.trim().toLowerCase();
+    const name = args.name.trim().toLowerCase();
+    const existing = (await ctx.db.query("users").collect()).filter(
+      (u) =>
+        u.username.trim().toLowerCase() === username ||
+        (u.name ?? "").trim().toLowerCase() === name,
+    );
+    if (existing.length > 0) {
+      return existing[0]._id;
     }
     return await ctx.db.insert("users", {
       username: args.username,
@@ -103,6 +110,65 @@ export const setMemberRole = internalMutation({
       await ctx.db.patch(existing._id, { role });
     }
     return null;
+  },
+});
+
+/**
+ * Change a member's login username. Ex-members imported as ghosts get
+ * scaffolding usernames (`tucker-ghost`); this makes the name they actually
+ * type to sign in a human one.
+ *
+ * `users.username` is not the login credential itself — the auth account is —
+ * but it's what a new sign-up matches on to claim an existing row, and what
+ * `memberByName` resolves admin commands against, so it has to stay unique
+ * across both `username` and `name`.
+ */
+export const renameUsername = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    userName: v.string(),
+    newUsername: v.string(),
+  },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const user = await memberByName(ctx, args.clubId, args.userName, true);
+    const next = args.newUsername.trim();
+    if (next.length === 0) {
+      throw new ConvexError("Username can't be empty.");
+    }
+    const needle = next.toLowerCase();
+
+    // Any other row answering to this word would make `memberByName` ambiguous
+    // and let a sign-up claim the wrong identity.
+    const clashes = (await ctx.db.query("users").collect()).filter(
+      (u) =>
+        u._id !== user._id &&
+        (u.username.trim().toLowerCase() === needle ||
+          (u.name ?? "").trim().toLowerCase() === needle),
+    );
+    if (clashes.length > 0) {
+      throw new ConvexError(
+        `"${next}" already answers to ` +
+          clashes.map((u) => `${u.name ?? "?"} (@${u.username})`).join(", "),
+      );
+    }
+
+    // Accounts are keyed by the lowercased username. If one already exists for
+    // this word and belongs to someone else, renaming into it would point this
+    // row at a login it doesn't own.
+    const owner = await ctx.runQuery(
+      components.core.public.getUserIdByAccount,
+      { provider: "password", providerAccountId: needle },
+    );
+    if (owner !== null && owner !== user._id) {
+      throw new ConvexError(
+        `The username "${next}" is already claimed by another account.`,
+      );
+    }
+
+    const before = user.username;
+    await ctx.db.patch(user._id, { username: next });
+    return `Renamed ${user.name ?? "?"}: @${before} → @${next}`;
   },
 });
 
