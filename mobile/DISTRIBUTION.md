@@ -254,9 +254,16 @@ new binary so OTA and native stay matched.
   app are unchanged, so **`tsc` still type-checks against the real
   schema-typed generated `.d.ts`**; only Metro's runtime resolution is
   shimmed. `dataModel` is an `import type`, stripped before it hits the
-  resolver. Keep `experiments.onDemandFilesystem: "UNSTABLE_ALLOW_ALL"` (it's
-  what makes local dev/type resolution work out-of-root). If the app ever
-  imports a *new* value (not type) from `convex/_generated`, extend the shim.
+  resolver. If the app ever imports a *new* value (not type) from
+  `convex/_generated`, extend the shim.
+- **`experiments.onDemandFilesystem` breaks `eas update`.** app.json used to
+  carry `"onDemandFilesystem": "UNSTABLE_ALLOW_ALL"` so Metro could read
+  out-of-root. EAS Update validates the manifest server-side and rejects it —
+  `Manifest Validation Error: experiments/onDemandFilesystem: must be boolean`
+  → `Failed to publish updates`. The metro.config.js redirect above had already
+  made the flag redundant, so it's simply removed (2026-07-29). Don't add it
+  back; if you ever need out-of-root reads again, the schema-legal value is a
+  boolean.
 - **`eas update` exporting the web platform.** `expo.platforms` was absent in
   app.json, so it defaulted to `["ios","android","web"]`. Both `eas build` and
   `eas update` export with `--platform=all`, so the export tried to bundle web,

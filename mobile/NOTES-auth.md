@@ -35,36 +35,31 @@ package: guard on `typeof window.addEventListener === "function"` in
 
 ## The Metro gotcha (SDK 57) — read before touching config
 
-Importing the shared `../convex/_generated/api` from inside `mobile/`
-initially failed to resolve. Do **not** add a `metro.config.js` with
-`watchFolders`/`nodeModulesPaths` — the SDK 57 docs say to delete that
-manual monorepo config, and it doesn't fix this anyway.
+Importing the shared `../convex/_generated/api` from inside `mobile/` doesn't
+resolve on its own: SDK 57's on-demand filesystem scopes out-of-root reads to
+the Metro *server root*, and without npm workspaces that root is `mobile/`
+itself. Do **not** "fix" it with `watchFolders`/`nodeModulesPaths` — the SDK 57
+docs say to delete that manual monorepo config, and it doesn't help here.
 
-The cause: SDK 57's on-demand filesystem scopes lazy out-of-root reads to
-the Metro *server root*, and without npm workspaces the server root is
-`mobile/` itself. The fix (in app.json, the escape hatch the Expo CLI
-explicitly supports):
+**How it's actually solved:** `metro.config.js` redirects the *runtime* import
+of `.../convex/_generated/api` to a local generic copy
+(`convex-generated/api.js`) — the generated `api` is just `anyApi`, identical
+for every Convex project. Import paths in the app are unchanged, so `tsc` still
+type-checks against the real schema-typed `.d.ts` in the parent. The `dataModel`
+import is `import type`, erased before it reaches the resolver.
 
-```json
-"experiments": { "onDemandFilesystem": "UNSTABLE_ALLOW_ALL" }
-```
+This also fixes EAS Build, which uploads *only* `mobile/` — in the cloud the
+parent `convex/` doesn't exist at all.
 
-If this experiment flag ever disappears in an SDK upgrade, the durable
-alternative is making the repo an npm workspace (root `package.json`
-`"workspaces": ["mobile"]`) so Expo detects the repo root as the server
-root — at the cost of dependency hoisting.
+**Don't reintroduce `experiments.onDemandFilesystem`.** It used to live in
+app.json as `"UNSTABLE_ALLOW_ALL"` to permit those out-of-root reads. The Metro
+redirect above made it unnecessary, and it actively breaks `eas update`: the
+server validates the manifest and rejects the string with
+`experiments/onDemandFilesystem: must be boolean`, so publishing fails. Removed
+2026-07-29; local dev, `expo export`, and the dev server all resolve fine
+without it (verified by fetching an iOS dev bundle from `expo start`).
 
-Keep the root and mobile `convex` package versions aligned — the generated
-`api.js` resolves `convex` from the root `node_modules`.
-
-**The `onDemandFilesystem` flag fixes *local* dev, not EAS Build.** EAS uploads
-only `mobile/`, so in the cloud the parent `convex/` doesn't exist at all and
-Metro can't resolve `../convex/_generated/api` (bundle-phase failure). That's
-handled separately by `metro.config.js`, which redirects the *runtime* import
-to a local generic `convex-generated/api.js` (the generated `api` is just
-`anyApi`). Type-checking is untouched — the import paths still point at the
-real, schema-typed generated `.d.ts`. See DISTRIBUTION.md → "Gotchas that will
-bite a cloud build".
+Keep the root and mobile `convex` package versions aligned.
 
 ## Still open
 

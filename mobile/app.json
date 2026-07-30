@@ -41,9 +41,6 @@
         "projectId": "c6fb0140-1e57-48f1-841b-417c01e3cecf"
       }
     },
-    "experiments": {
-      "onDemandFilesystem": "UNSTABLE_ALLOW_ALL"
-    },
     "owner": "ianatconvex",
     "runtimeVersion": {
       "policy": "appVersion"

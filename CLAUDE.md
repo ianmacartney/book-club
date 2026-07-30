@@ -9,15 +9,17 @@ component, which owns `/` on the deployment's `.convex.site` domain.
 Expo (SDK 57) React Native app, chat-feed-first design (`convex/feed.ts`
 composes check-ins, submissions, and summaries into the timeline). **Live
 against the dev deployment** with Convex Auth v2 (username+password, tokens
-in expo-secure-store); how the wiring works — including the SDK 57 Metro
-`onDemandFilesystem: "UNSTABLE_ALLOW_ALL"` gotcha for importing the shared
-`convex/_generated` — is documented in `mobile/NOTES-auth.md`. Shipping to
+in expo-secure-store); how the wiring works — including how the shared
+`convex/_generated` import resolves from outside `mobile/` (a `metro.config.js`
+redirect, *not* the `onDemandFilesystem` experiment, which breaks `eas update`)
+— is documented in `mobile/NOTES-auth.md`. Shipping to
 the club is `mobile/DISTRIBUTION.md`. Push notifications are live
 server-side via the `@convex-dev/expo-push-notifications` component
 (`convex/notifications.ts`): submission/your-turn pushes, a per-user daily
-reminder cron (15-min interval), and opt-in star announcements. Typecheck
-with `cd mobile && npx tsc --noEmit`; smoke-test the bundle with
-`npx expo export --platform ios`.
+reminder cron (15-min interval), and opt-in star announcements. Before shipping
+anything, `cd mobile && npm run preflight` (typecheck, dependency integrity,
+local export, and an export from a copy of only `mobile/` — the conditions EAS
+builds under).
 
 ## Deploying (hosting)
 
