@@ -3,7 +3,19 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { currentUserId, requireUser } from "./lib/access";
 import { isValidTimezone, todayInTz } from "./lib/days";
 
-/** Called by Convex Auth whenever an account signs up or in. */
+/**
+ * Called by Convex Auth whenever an account signs up or in.
+ *
+ * A new account **claims a matching account-less `users` row** rather than
+ * creating a second identity. That's how an ex-member (a ghost like Tucker,
+ * whose row is referenced by years of books and sections) can sign in and land
+ * on his own history instead of a fresh empty row. Without it, signing up
+ * always forked a new identity — which is how a duplicate "Peter" appeared.
+ *
+ * This can't be used to hijack an active member: `signUpWithPassword` rejects a
+ * username that already has an account (`USERNAME_TAKEN`) before ever calling
+ * this, so the only rows reachable here are ones nobody can sign in as.
+ */
 export const createOrUpdateUser = internalMutation({
   args: {
     provider: v.literal("password"),
@@ -15,15 +27,28 @@ export const createOrUpdateUser = internalMutation({
   handler: async (ctx, args) => {
     if (args.userId !== null) {
       const existing = ctx.db.normalizeId("users", args.userId);
-      if (existing === null) {
-        throw new ConvexError(`Unknown user id: ${args.userId}`);
+      // If the row is gone (e.g. an orphan we cleaned up), don't hard-fail the
+      // sign-in — fall through and re-bind, so a stale account can't lock
+      // someone out of the app entirely.
+      if (existing !== null && (await ctx.db.get(existing)) !== null) {
+        return existing;
       }
-      return existing;
     }
     const username =
       typeof args.profile?.username === "string"
         ? args.profile.username
         : "anonymous";
+
+    // Accounts are keyed by lowercased username while `users.username` keeps
+    // its original casing ("Ian M", "Schoony"), so match case-insensitively.
+    // Only an unambiguous single match is claimed; anything else gets a new row.
+    const needle = username.trim().toLowerCase();
+    const matches = (await ctx.db.query("users").collect()).filter(
+      (u) => u.username.trim().toLowerCase() === needle,
+    );
+    if (matches.length === 1) {
+      return matches[0]._id;
+    }
     return await ctx.db.insert("users", { username });
   },
 });

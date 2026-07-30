@@ -107,6 +107,134 @@ export const setMemberRole = internalMutation({
 });
 
 /**
+ * Delete a `users` row that nothing references — cleanup for a duplicate
+ * identity created by an accidental second sign-up (see the "Peter" case,
+ * 2026-07-29).
+ *
+ * Refuses unless the row is unreferenced everywhere, so it can't take a real
+ * member with it, nor a ghost like Tucker whose row is still cited by years of
+ * books and sections. Deleting the app row does NOT remove the auth account
+ * that points at it (component data is only reachable through the component's
+ * own API, and it exposes no delete) — remove that in the Convex dashboard,
+ * under the `core` component's `accounts` table, or the username stays claimed.
+ * Order doesn't matter: `users.createOrUpdateUser` re-binds rather than failing
+ * if an account outlives its row.
+ */
+export const deleteOrphanUser = internalMutation({
+  args: { userId: v.id("users") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (user === null) {
+      throw new ConvexError(`No such user: ${args.userId}`);
+    }
+    const id = args.userId;
+    const blockers: string[] = [];
+    const note = (n: number, what: string) => {
+      if (n > 0) blockers.push(`${n} ${what}`);
+    };
+
+    note(
+      (
+        await ctx.db
+          .query("memberships")
+          .withIndex("userId", (q) => q.eq("userId", id))
+          .collect()
+      ).length,
+      "membership(s)",
+    );
+    note(
+      (
+        await ctx.db
+          .query("checkins")
+          .withIndex("userDay", (q) => q.eq("userId", id))
+          .collect()
+      ).length,
+      "checkin(s)",
+    );
+    note(
+      (
+        await ctx.db
+          .query("clouds")
+          .withIndex("userDay", (q) => q.eq("userId", id))
+          .collect()
+      ).length,
+      "cloud row(s)",
+    );
+    note(
+      (
+        await ctx.db
+          .query("notificationPrefs")
+          .withIndex("userId", (q) => q.eq("userId", id))
+          .collect()
+      ).length,
+      "notification pref(s)",
+    );
+
+    const books = await ctx.db.query("books").collect();
+    note(
+      books.filter(
+        (b) =>
+          b.suggestedBy === id ||
+          b.rotation.includes(id) ||
+          (b.result?.loserIds ?? []).includes(id) ||
+          (b.result?.tallies ?? []).some((t) => t.userId === id),
+      ).length,
+      "book(s)",
+    );
+    const sections = await ctx.db.query("sections").collect();
+    note(
+      sections.filter(
+        (s) => s.assignedTo === id || s.submission?.by === id,
+      ).length,
+      "section(s)",
+    );
+    note(
+      (await ctx.db.query("clubs").collect()).filter((c) => c.createdBy === id)
+        .length,
+      "club(s) created",
+    );
+    note(
+      (await ctx.db.query("polls").collect()).filter((p) => p.createdBy === id)
+        .length,
+      "poll(s)",
+    );
+    note(
+      (await ctx.db.query("nominations").collect()).filter(
+        (n) => n.suggestedBy === id,
+      ).length,
+      "nomination(s)",
+    );
+    note(
+      (await ctx.db.query("votes").collect()).filter((v2) => v2.userId === id)
+        .length,
+      "vote(s)",
+    );
+    note(
+      (await ctx.db.query("summaries").collect()).filter((s) =>
+        s.entries.some((e) => e.userId === id),
+      ).length,
+      "summary/summaries",
+    );
+    note(
+      (await ctx.db.query("invites").collect()).filter(
+        (i) => i.createdBy === id || i.usedBy === id,
+      ).length,
+      "invite(s)",
+    );
+
+    if (blockers.length > 0) {
+      throw new ConvexError(
+        `Refusing to delete ${user.name ?? "?"} (@${user.username}): still referenced by ` +
+          `${blockers.join(", ")}. This is not an orphan.`,
+      );
+    }
+    await ctx.db.delete(id);
+    return `Deleted orphan user ${user.name ?? "?"} (@${user.username})`;
+  },
+});
+
+/**
  * Start a book with an explicit rotation and suggester, matched by display
  * name or username — the in-app form only does join-order rotation and
  * credits the caller as suggester. `startedDay` backdates the start.

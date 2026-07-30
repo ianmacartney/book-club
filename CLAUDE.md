@@ -81,7 +81,7 @@ Club: "Push Up Club" — id `kh7bzpeb6gfb3ty6s1qwhqe3kh8b4fhe`.
 | Billy | Bward006 | America/New_York | +13157203272 |
 | Ian S | iansugg@gmail.com | America/Denver | +13039468395 |
 | Ian M | Ian M | America/Los_Angeles | "me" in exports |
-| Tucker | tucker-ghost | America/New_York | +12696153899 — **ghost**: ex-member (2018–2021), has a users row but no membership; appears in old books, accrues nothing new |
+| Tucker | tucker-ghost | America/New_York | +12696153899 — **ghost**: ex-member (2018–2021) with a `role: "ghost"` membership; watches the club (feed, library, standings) but accrues nothing, and is excluded from every reading rotation. His row is cited by 305 checkins, 12 books, 28 sections — never delete or merge it |
 
 Watch out: "Schoony" is HENRY's username (not a Billy nickname). "Pete" =
 Peter. Admin mutations match members by display name OR username,
@@ -129,10 +129,34 @@ npx convex run setup:startBookAsAdmin '{"clubId":"<club>","title":"…",
   "rotationNames":["Peter","Henry","Billy","Ian M","Ian S"],
   "sectionTitles":["Book 1","…"],"startedDay":"2026-07-20"}'
 
+# Ghosts: watch the club, owe nothing, never in a rotation. Creates the
+# membership if the user has none — the path for giving an ex-member access:
+npx convex run setup:setMemberRole \
+  '{"clubId":"<club>","userName":"Tucker","role":"ghost"}'   # or "member"
+
+# Delete a duplicate identity from an accidental second sign-up. Refuses
+# unless the row is unreferenced everywhere, so it can't eat a real member:
+npx convex run setup:deleteOrphanUser '{"userId":"<usersId>"}'
+
 # Historical imports: setup:importPastBook (whole finished/abandoned book,
 # dedupes on title+startedDay), setup:importCheckins (bulk, insert-if-absent,
 # never clobbers app data), setup:createGhostUser (ex-members).
 ```
+
+**Signing in claims an existing identity.** `users.createOrUpdateUser` binds a
+new account to an account-less `users` row with the same username
+(case-insensitive) instead of forking a duplicate — that's how an ex-member like
+Tucker signs in and lands on his own history, with no invite code needed (he
+already holds a ghost membership). Hijacking an active member isn't possible:
+`signUpWithPassword` rejects a username that already has an account
+(`USERNAME_TAKEN`) before the callback runs, so only account-less rows are
+reachable. Before this existed, a second sign-up forked a new identity — which
+is how a duplicate "Peter" appeared on 2026-07-29.
+
+Deleting a `users` row does **not** delete the auth account pointing at it:
+component data is only reachable through the component's API and it exposes no
+delete, so clear stale accounts in the dashboard under the `core` component's
+`accounts` table.
 
 Member-scoped queries need an identity (subject = users table id):
 
