@@ -15,6 +15,15 @@ import { isValidTimezone, todayInTz } from "./lib/days";
  * This can't be used to hijack an active member: `signUpWithPassword` rejects a
  * username that already has an account (`USERNAME_TAKEN`) before ever calling
  * this, so the only rows reachable here are ones nobody can sign in as.
+ *
+ * TODO(remove-username-claim): the claim-by-username lookup below exists only so
+ * the pre-app roster (imported from iMessage) can be adopted by the accounts of
+ * people who were members before the app existed. Tucker is the last such
+ * ex-member; once he's signed in and claimed his row, no future member needs
+ * this — they'll sign up into a fresh row. Rip out the lookup then and let the
+ * handler just re-bind by `args.userId` or insert. That also retires the pile of
+ * hard-coded admin scripts/workflows in `setup.ts` that only exist to reconcile
+ * the imported roster with real accounts.
  */
 export const createOrUpdateUser = internalMutation({
   args: {
