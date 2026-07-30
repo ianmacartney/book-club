@@ -25,6 +25,7 @@ export const start = mutation({
 });
 
 async function openPoll(ctx: MutationCtx, clubId: Id<"clubs">) {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's polls — one active at a time, history grows slowly
   const polls = await ctx.db
     .query("polls")
     .withIndex("clubId", (q) => q.eq("clubId", clubId))
@@ -103,6 +104,7 @@ export const withdrawNomination = mutation({
 });
 
 async function pollNominations(ctx: MutationCtx, pollId: Id<"polls">) {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- one poll's nominations — at most one per member (~100)
   return await ctx.db
     .query("nominations")
     .withIndex("pollId", (q) => q.eq("pollId", pollId))
@@ -224,6 +226,7 @@ async function roundVotes(
   pollId: Id<"polls">,
   round: "initial" | "runoff",
 ) {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- one round's votes — at most one per member (~100)
   return await ctx.db
     .query("votes")
     .withIndex("pollRound", (q) => q.eq("pollId", pollId).eq("round", round))
@@ -340,6 +343,7 @@ export const state = query({
   args: { clubId: v.id("clubs") },
   handler: async (ctx, args) => {
     const viewer = await requireMembership(ctx, args.clubId);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's polls — one active at a time, history grows slowly
     const polls = await ctx.db
       .query("polls")
       .withIndex("clubId", (q) => q.eq("clubId", args.clubId))
@@ -350,6 +354,7 @@ export const state = query({
       return null;
     }
     const memberIds = await clubMemberIds(ctx, args.clubId);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one poll's nominations — at most one per member (~100)
     const nominations = await ctx.db
       .query("nominations")
       .withIndex("pollId", (q) => q.eq("pollId", poll._id))
@@ -360,6 +365,7 @@ export const state = query({
       names.set(id, u?.name ?? u?.username ?? "?");
     }
     const round = poll.status === "runoff" ? "runoff" : "initial";
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one round's votes — at most one per member (~100)
     const votes = await ctx.db
       .query("votes")
       .withIndex("pollRound", (q) =>

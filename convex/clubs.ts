@@ -43,6 +43,7 @@ export const mine = query({
     if (userId === null) {
       return [];
     }
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a user's club memberships — a small bounded set
     const memberships = await ctx.db
       .query("memberships")
       .withIndex("userId", (q) => q.eq("userId", userId))
@@ -126,6 +127,7 @@ export const openInvites = query({
   args: { clubId: v.id("clubs") },
   handler: async (ctx, args) => {
     await requireMembership(ctx, args.clubId);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's invites — bounded
     const invites = await ctx.db
       .query("invites")
       .withIndex("clubId", (q) => q.eq("clubId", args.clubId))

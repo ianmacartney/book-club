@@ -10,6 +10,7 @@ export const compileAll = internalMutation({
   handler: async (ctx) => {
     const weekEndingDay = todayInTz("UTC");
     const weekStartDay = addDays(weekEndingDay, -6);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all clubs — a handful
     const clubs = await ctx.db.query("clubs").collect();
     for (const club of clubs) {
       const existing = await ctx.db

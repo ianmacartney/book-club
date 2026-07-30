@@ -43,6 +43,7 @@ export const createOrUpdateUser = internalMutation({
     // its original casing ("Ian M", "Schoony"), so match case-insensitively.
     // Only an unambiguous single match is claimed; anything else gets a new row.
     const needle = username.trim().toLowerCase();
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
     const matches = (await ctx.db.query("users").collect()).filter(
       (u) => u.username.trim().toLowerCase() === needle,
     );

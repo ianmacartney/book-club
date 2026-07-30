@@ -147,6 +147,7 @@ export const submitSection = mutation({
     }
     await requireMembership(ctx, book.clubId);
 
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
     const sections = await ctx.db
       .query("sections")
       .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
@@ -300,6 +301,7 @@ export const detail = query({
     }
     const viewer = await requireMembership(ctx, book.clubId);
 
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
     const sections = await ctx.db
       .query("sections")
       .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
@@ -385,12 +387,14 @@ export const history = query({
   args: { clubId: v.id("clubs") },
   handler: async (ctx, args) => {
     await requireMembership(ctx, args.clubId);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
     const finished = await ctx.db
       .query("books")
       .withIndex("clubStatus", (q) =>
         q.eq("clubId", args.clubId).eq("status", "finished"),
       )
       .collect();
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
     const abandoned = await ctx.db
       .query("books")
       .withIndex("clubStatus", (q) =>

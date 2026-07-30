@@ -15,6 +15,7 @@ export async function cloudsForUser(
   fromDay: string,
   toDay?: string,
 ): Promise<number> {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
   const entries = await ctx.db
     .query("clouds")
     .withIndex("userDay", (q) => {
@@ -65,6 +66,7 @@ export async function accrueLateClouds(
       .withIndex("sectionDay", (q) =>
         q.eq("sectionId", section._id).eq("day", lateDay),
       )
+      // eslint-disable-next-line @convex-dev/no-filter-in-query -- narrows one section-day (a handful of rows) by source; a source index would be overkill
       .filter((q) => q.eq(q.field("source"), "section_late"))
       .unique();
     if (existing === null) {

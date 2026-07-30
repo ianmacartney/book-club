@@ -42,6 +42,7 @@ export async function clubMemberships(
   ctx: QueryCtx | MutationCtx,
   clubId: Id<"clubs">,
 ): Promise<Doc<"memberships">[]> {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's members — bounded (~100)
   return await ctx.db
     .query("memberships")
     .withIndex("clubId", (q) => q.eq("clubId", clubId))
@@ -79,6 +80,7 @@ export async function hasActiveMembership(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
 ): Promise<boolean> {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- a user's club memberships — a small bounded set
   const memberships = await ctx.db
     .query("memberships")
     .withIndex("userId", (q) => q.eq("userId", userId))

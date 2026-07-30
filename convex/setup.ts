@@ -23,6 +23,7 @@ async function memberByName(
 ): Promise<Doc<"users">> {
   const memberIds = await clubMemberIds(ctx, clubId);
   const pool = includeGhosts
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
     ? await ctx.db.query("users").collect()
     : (await Promise.all(memberIds.map((id) => ctx.db.get("users", id)))).filter(
         (m) => m !== null,
@@ -60,6 +61,7 @@ export const createGhostUser = internalMutation({
     // not fork a second row for the same person.
     const username = args.username.trim().toLowerCase();
     const name = args.name.trim().toLowerCase();
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
     const existing = (await ctx.db.query("users").collect()).filter(
       (u) =>
         u.username.trim().toLowerCase() === username ||
@@ -140,6 +142,7 @@ export const renameUsername = internalMutation({
 
     // Any other row answering to this word would make `memberByName` ambiguous
     // and let a sign-up claim the wrong identity.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
     const clashes = (await ctx.db.query("users").collect()).filter(
       (u) =>
         u._id !== user._id &&
@@ -202,6 +205,7 @@ export const deleteOrphanUser = internalMutation({
 
     note(
       (
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
         await ctx.db
           .query("memberships")
           .withIndex("userId", (q) => q.eq("userId", id))
@@ -211,6 +215,7 @@ export const deleteOrphanUser = internalMutation({
     );
     note(
       (
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
         await ctx.db
           .query("checkins")
           .withIndex("userDay", (q) => q.eq("userId", id))
@@ -220,6 +225,7 @@ export const deleteOrphanUser = internalMutation({
     );
     note(
       (
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
         await ctx.db
           .query("clouds")
           .withIndex("userDay", (q) => q.eq("userId", id))
@@ -229,6 +235,7 @@ export const deleteOrphanUser = internalMutation({
     );
     note(
       (
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
         await ctx.db
           .query("notificationPrefs")
           .withIndex("userId", (q) => q.eq("userId", id))
@@ -237,6 +244,7 @@ export const deleteOrphanUser = internalMutation({
       "notification pref(s)",
     );
 
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
     const books = await ctx.db.query("books").collect();
     note(
       books.filter(
@@ -248,6 +256,7 @@ export const deleteOrphanUser = internalMutation({
       ).length,
       "book(s)",
     );
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
     const sections = await ctx.db.query("sections").collect();
     note(
       sections.filter(
@@ -256,33 +265,39 @@ export const deleteOrphanUser = internalMutation({
       "section(s)",
     );
     note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("clubs").collect()).filter((c) => c.createdBy === id)
         .length,
       "club(s) created",
     );
     note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("polls").collect()).filter((p) => p.createdBy === id)
         .length,
       "poll(s)",
     );
     note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("nominations").collect()).filter(
         (n) => n.suggestedBy === id,
       ).length,
       "nomination(s)",
     );
     note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("votes").collect()).filter((v2) => v2.userId === id)
         .length,
       "vote(s)",
     );
     note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("summaries").collect()).filter((s) =>
         s.entries.some((e) => e.userId === id),
       ).length,
       "summary/summaries",
     );
     note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("invites").collect()).filter(
         (i) => i.createdBy === id || i.usedBy === id,
       ).length,
@@ -359,6 +374,7 @@ export const backfillSubmission = internalMutation({
     if (book === null || book.status !== "active") {
       throw new ConvexError("Book not found or not active.");
     }
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
     const sections = await ctx.db
       .query("sections")
       .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
@@ -376,6 +392,7 @@ export const backfillSubmission = internalMutation({
     // Settle lateness as of the real submission day, then drop anything the
     // cron billed for days after it.
     await accrueLateClouds(ctx, book, current, args.day);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one section's clouds — bounded
     const billed = await ctx.db
       .query("clouds")
       .withIndex("sectionDay", (q) =>
@@ -457,6 +474,7 @@ export const importPastBook = internalMutation({
   returns: v.union(v.id("books"), v.null()),
   handler: async (ctx, args) => {
     const status = args.abandoned ? ("abandoned" as const) : ("finished" as const);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
     const already = await ctx.db
       .query("books")
       .withIndex("clubStatus", (q) =>
@@ -617,6 +635,7 @@ export const backfillCheckin = internalMutation({
     if (existing !== null) {
       await ctx.db.delete("checkins", existing._id);
     }
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
     const clouds = await ctx.db
       .query("clouds")
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", args.day))

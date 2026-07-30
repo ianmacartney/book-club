@@ -19,10 +19,12 @@ export const processAll = internalMutation({
   args: {},
   handler: async (ctx) => {
     // --- 1. Missed pushups -------------------------------------------------
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
     const users = await ctx.db.query("users").collect();
     for (const user of users) {
       // Ghost memberships carry no obligations, so only full memberships
       // put pushups at stake (the oldest one starts the clock).
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- a user's club memberships — a small bounded set
       const memberships = await ctx.db
         .query("memberships")
         .withIndex("userId", (q) => q.eq("userId", user._id))
@@ -64,11 +66,13 @@ export const processAll = internalMutation({
     }
 
     // --- 2. Overdue sections ----------------------------------------------
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- active books — one per club, bounded
     const activeBooks = await ctx.db
       .query("books")
       .withIndex("status", (q) => q.eq("status", "active"))
       .collect();
     for (const book of activeBooks) {
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
       const sections = await ctx.db
         .query("sections")
         .withIndex("bookIdx", (q) => q.eq("bookId", book._id))

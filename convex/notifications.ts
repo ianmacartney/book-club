@@ -268,12 +268,14 @@ export async function notifyStarLogged(
   ctx: MutationCtx,
   user: Doc<"users">,
 ): Promise<void> {
+  // eslint-disable-next-line @convex-dev/no-collect-in-query -- a user's club memberships — a small bounded set
   const memberships = await ctx.db
     .query("memberships")
     .withIndex("userId", (q) => q.eq("userId", user._id))
     .collect();
   const clubmateIds = new Set<Id<"users">>();
   for (const membership of memberships) {
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's members — bounded (~100)
     const others = await ctx.db
       .query("memberships")
       .withIndex("clubId", (q) => q.eq("clubId", membership.clubId))
@@ -309,6 +311,7 @@ export async function notifyStarLogged(
 export const sendReminders = internalMutation({
   args: {},
   handler: async (ctx) => {
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one row per user — bounded (a few dozen)
     const allPrefs = await ctx.db.query("notificationPrefs").collect();
     const sends: Send[] = [];
     for (const prefs of allPrefs) {

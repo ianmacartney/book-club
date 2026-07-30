@@ -38,6 +38,7 @@ export const submit = mutation({
     const existingCloud = await ctx.db
       .query("clouds")
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", today))
+      // eslint-disable-next-line @convex-dev/no-filter-in-query -- narrows one user-day (a handful of rows) by source; a source index would be overkill
       .filter((q) => q.eq(q.field("source"), "pushups_storm"))
       .unique();
     if (args.status === "storm" && existingCloud === null) {
@@ -82,6 +83,7 @@ export const history = query({
     }
     const today = todayInTz(user.timezone);
     const fromDay = addDays(today, -13);
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
     const checkins = await ctx.db
       .query("checkins")
       .withIndex("userDay", (q) =>

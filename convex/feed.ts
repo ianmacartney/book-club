@@ -112,6 +112,7 @@ export const forClub = query({
     // Ghosts included: an ex-member's historical check-ins stay in the feed.
     const memberIds = await clubRecipientIds(ctx, args.clubId);
     for (const memberId of memberIds) {
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
       const checkins = await ctx.db
         .query("checkins")
         .withIndex("userDay", (q) =>
@@ -136,6 +137,7 @@ export const forClub = query({
     const books: Doc<"books">[] = [];
     for (const status of ["active", "finished", "abandoned"] as const) {
       books.push(
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
         ...(await ctx.db
           .query("books")
           .withIndex("clubStatus", (q) =>
@@ -189,6 +191,7 @@ export const forClub = query({
       ) {
         continue;
       }
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
       const sections = await ctx.db
         .query("sections")
         .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
@@ -219,6 +222,7 @@ export const forClub = query({
     }
 
     // --- Sunday summaries ---------------------------------------------------
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded week window
     const summaries = await ctx.db
       .query("summaries")
       .withIndex("clubWeek", (q) =>
