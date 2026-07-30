@@ -48,7 +48,7 @@ export const submit = mutation({
         source: "pushups_storm",
       });
     } else if (args.status === "star" && existingCloud !== null) {
-      await ctx.db.delete(existingCloud._id);
+      await ctx.db.delete("clouds", existingCloud._id);
     }
 
     if (existing === null) {
@@ -58,7 +58,7 @@ export const submit = mutation({
         status: args.status,
       });
     } else {
-      await ctx.db.patch(existing._id, { status: args.status });
+      await ctx.db.patch("checkins", existing._id, { status: args.status });
     }
     // Announce a fresh ⭐️ to clubmates who opted in (not on re-toggles).
     if (args.status === "star" && existing?.status !== "star") {
@@ -76,7 +76,7 @@ export const history = query({
     if (userId === null) {
       return [];
     }
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (user === null) {
       return [];
     }

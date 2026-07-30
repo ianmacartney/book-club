@@ -129,7 +129,7 @@ export const updateSettings = mutation({
         ...next,
       });
     } else {
-      await ctx.db.replace(existing._id, {
+      await ctx.db.replace("notificationPrefs", existing._id, {
         userId: user._id,
         reminderSentDay: existing.reminderSentDay,
         ...next,
@@ -315,7 +315,7 @@ export const sendReminders = internalMutation({
       if (prefs.reminderTime === undefined) {
         continue;
       }
-      const user = await ctx.db.get(prefs.userId);
+      const user = await ctx.db.get("users", prefs.userId);
       if (user === null) {
         continue;
       }
@@ -348,7 +348,7 @@ export const sendReminders = internalMutation({
           data: { type: "reminder" },
         },
       });
-      await ctx.db.patch(prefs._id, { reminderSentDay: today });
+      await ctx.db.patch("notificationPrefs", prefs._id, { reminderSentDay: today });
     }
     await sendBatch(ctx, sends);
   },

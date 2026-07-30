@@ -82,7 +82,7 @@ export const forClub = query({
         weekEndingDay: s.weekEndingDay,
         entries: await Promise.all(
           s.entries.map(async (e) => {
-            const u = await ctx.db.get(e.userId);
+            const u = await ctx.db.get("users", e.userId);
             return { ...e, name: u?.name ?? u?.username ?? "former member" };
           }),
         ),

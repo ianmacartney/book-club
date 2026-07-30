@@ -78,7 +78,7 @@ export const processAll = internalMutation({
       if (current === undefined) {
         continue;
       }
-      const assignee = await ctx.db.get(current.assignedTo);
+      const assignee = await ctx.db.get("users", current.assignedTo);
       await accrueLateClouds(ctx, book, current, todayInTz(assignee?.timezone));
     }
   },

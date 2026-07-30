@@ -33,7 +33,7 @@ async function openPoll(ctx: MutationCtx, clubId: Id<"clubs">) {
 }
 
 async function getPollForMember(ctx: MutationCtx, pollId: Id<"polls">) {
-  const poll = await ctx.db.get(pollId);
+  const poll = await ctx.db.get("polls", pollId);
   if (poll === null) {
     throw new ConvexError("Poll not found.");
   }
@@ -86,7 +86,7 @@ export const withdrawNomination = mutation({
   args: { nominationId: v.id("nominations") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const nomination = await ctx.db.get(args.nominationId);
+    const nomination = await ctx.db.get("nominations", args.nominationId);
     if (nomination === null) {
       throw new ConvexError("Nomination not found.");
     }
@@ -97,7 +97,7 @@ export const withdrawNomination = mutation({
     if (nomination.suggestedBy !== user._id) {
       throw new ConvexError("You can only withdraw your own nomination.");
     }
-    await ctx.db.delete(nomination._id);
+    await ctx.db.delete("nominations", nomination._id);
     return null;
   },
 });
@@ -121,7 +121,7 @@ export const closeNominations = mutation({
     if (nominations.length < 2) {
       throw new ConvexError("Need at least two nominations to vote.");
     }
-    await ctx.db.patch(poll._id, { status: "voting" });
+    await ctx.db.patch("polls", poll._id, { status: "voting" });
     return null;
   },
 });
@@ -180,7 +180,7 @@ export const castVote = mutation({
       )
       .unique();
     if (existing !== null) {
-      await ctx.db.patch(existing._id, { nominationIds: unique });
+      await ctx.db.patch("votes", existing._id, { nominationIds: unique });
     } else {
       await ctx.db.insert("votes", {
         pollId: poll._id,
@@ -272,12 +272,12 @@ async function tallyRound(
       slate = [...first, ...second];
     }
     if (slate.length === 1) {
-      await ctx.db.patch(poll._id, {
+      await ctx.db.patch("polls", poll._id, {
         status: "done",
         winnerNominationId: slate[0],
       });
     } else {
-      await ctx.db.patch(poll._id, {
+      await ctx.db.patch("polls", poll._id, {
         status: "runoff",
         runoffNominationIds: slate,
       });
@@ -293,15 +293,15 @@ async function tallyRound(
     .filter(([, s]) => s === top)
     .map(([id]) => id);
   if (leaders.length === 1) {
-    await ctx.db.patch(poll._id, {
+    await ctx.db.patch("polls", poll._id, {
       status: "done",
       winnerNominationId: leaders[0],
     });
   } else {
     for (const vote of votes) {
-      await ctx.db.delete(vote._id);
+      await ctx.db.delete("votes", vote._id);
     }
-    await ctx.db.patch(poll._id, { runoffNominationIds: leaders });
+    await ctx.db.patch("polls", poll._id, { runoffNominationIds: leaders });
   }
 }
 
@@ -318,7 +318,7 @@ export const startWinningBook = mutation({
     if (poll.status !== "done" || poll.winnerNominationId === undefined) {
       throw new ConvexError("This poll hasn't picked a winner yet.");
     }
-    const winner = await ctx.db.get(poll.winnerNominationId);
+    const winner = await ctx.db.get("nominations", poll.winnerNominationId);
     if (winner === null) {
       throw new ConvexError("Winning nomination is missing.");
     }
@@ -356,7 +356,7 @@ export const state = query({
       .collect();
     const names = new Map<Id<"users">, string>();
     for (const id of memberIds) {
-      const u = await ctx.db.get(id);
+      const u = await ctx.db.get("users", id);
       names.set(id, u?.name ?? u?.username ?? "?");
     }
     const round = poll.status === "runoff" ? "runoff" : "initial";

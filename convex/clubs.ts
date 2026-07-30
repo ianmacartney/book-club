@@ -49,7 +49,7 @@ export const mine = query({
       .collect();
     const clubs = await Promise.all(
       memberships.map(async (m) => {
-        const club = await ctx.db.get(m.clubId);
+        const club = await ctx.db.get("clubs", m.clubId);
         return club === null ? null : { _id: club._id, name: club.name };
       }),
     );
@@ -108,11 +108,11 @@ export const joinWithCode = mutation({
     if (existing !== null) {
       throw new ConvexError("You're already a member of this club.");
     }
-    await ctx.db.patch(invite._id, { usedBy: user._id });
+    await ctx.db.patch("invites", invite._id, { usedBy: user._id });
     // A labeled invite names its intended recipient; adopt it as the display
     // name unless they've already picked one.
     if (invite.forName !== undefined && user.name === undefined) {
-      await ctx.db.patch(user._id, { name: invite.forName });
+      await ctx.db.patch("users", user._id, { name: invite.forName });
     }
     await ctx.db.insert("memberships", {
       clubId: invite.clubId,
@@ -145,7 +145,7 @@ export const home = query({
   args: { clubId: v.id("clubs") },
   handler: async (ctx, args) => {
     const viewer = await requireMembership(ctx, args.clubId);
-    const club = await ctx.db.get(args.clubId);
+    const club = await ctx.db.get("clubs", args.clubId);
     if (club === null) {
       throw new ConvexError("Club not found.");
     }
@@ -162,7 +162,7 @@ export const home = query({
 
     const members = await Promise.all(
       memberIds.map(async (userId) => {
-        const user = await ctx.db.get(userId);
+        const user = await ctx.db.get("users", userId);
         if (user === null) {
           return null;
         }
@@ -191,7 +191,7 @@ export const home = query({
       memberships
         .filter(isGhost)
         .map(async (m) => {
-          const user = await ctx.db.get(m.userId);
+          const user = await ctx.db.get("users", m.userId);
           return user === null
             ? null
             : { _id: user._id, name: user.name ?? user.username };

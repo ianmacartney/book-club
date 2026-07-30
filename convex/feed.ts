@@ -81,7 +81,7 @@ async function nameOf(
   if (hit !== undefined) {
     return hit;
   }
-  const user = await ctx.db.get(userId);
+  const user = await ctx.db.get("users", userId);
   const name = user?.name ?? user?.username ?? "former member";
   cache.set(userId, name);
   return name;

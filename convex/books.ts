@@ -65,7 +65,7 @@ export async function startBookHelper(
   }
 
   const firstReaderId = rotation[0];
-  const firstReader = await ctx.db.get(firstReaderId);
+  const firstReader = await ctx.db.get("users", firstReaderId);
   const startedDay = args.startedDay ?? todayInTz(firstReader?.timezone);
 
   const bookId = await ctx.db.insert("books", {
@@ -137,11 +137,11 @@ export const submitSection = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const section = await ctx.db.get(args.sectionId);
+    const section = await ctx.db.get("sections", args.sectionId);
     if (section === null) {
       throw new ConvexError("Section not found.");
     }
-    const book = await ctx.db.get(section.bookId);
+    const book = await ctx.db.get("books", section.bookId);
     if (book === null || book.status !== "active") {
       throw new ConvexError("This book isn't being read right now.");
     }
@@ -157,7 +157,7 @@ export const submitSection = mutation({
       throw new ConvexError("It isn't this section's turn.");
     }
 
-    const assignee = await ctx.db.get(section.assignedTo);
+    const assignee = await ctx.db.get("users", section.assignedTo);
     const assigneeToday = todayInTz(assignee?.timezone);
     // Settle any late days the hourly cron hasn't billed yet — otherwise a
     // submission early in a fresh late day would erase it forever.
@@ -188,7 +188,7 @@ export const submitSection = mutation({
       });
     }
 
-    await ctx.db.patch(section._id, {
+    await ctx.db.patch("sections", section._id, {
       submission: {
         by: user._id,
         day: todayInTz(user.timezone),
@@ -205,12 +205,12 @@ export const submitSection = mutation({
     const next = sections.find((s) => s.index === section.index + 1);
     if (next !== undefined) {
       // The next reader's 2 calendar days start now, in their timezone.
-      const nextReader = await ctx.db.get(next.assignedTo);
+      const nextReader = await ctx.db.get("users", next.assignedTo);
       const nextDueDay = addDays(
         todayInTz(nextReader?.timezone),
         DAYS_PER_SECTION,
       );
-      await ctx.db.patch(next._id, { dueDay: nextDueDay });
+      await ctx.db.patch("sections", next._id, { dueDay: nextDueDay });
       await notifySectionSubmitted(ctx, {
         book,
         sectionTitle: section.title,
@@ -228,10 +228,10 @@ export const submitSection = mutation({
       });
     } else {
       await finishBook(ctx, book);
-      const finished = await ctx.db.get(book._id);
+      const finished = await ctx.db.get("books", book._id);
       const loserNames = await Promise.all(
         (finished?.result?.loserIds ?? []).map(async (id) => {
-          const u = await ctx.db.get(id);
+          const u = await ctx.db.get("users", id);
           return u?.name ?? u?.username ?? "?";
         }),
       );
@@ -263,7 +263,7 @@ export async function finishBook(ctx: MutationCtx, book: Doc<"books">) {
   const loserIds = tallies
     .filter((t) => t.clouds === worst && worst > 0)
     .map((t) => t.userId);
-  await ctx.db.patch(book._id, {
+  await ctx.db.patch("books", book._id, {
     status: "finished",
     endedDay,
     result: { tallies, loserIds },
@@ -274,7 +274,7 @@ export const abandon = mutation({
   args: { bookId: v.id("books") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const book = await ctx.db.get(args.bookId);
+    const book = await ctx.db.get("books", args.bookId);
     if (book === null) {
       throw new ConvexError("Book not found.");
     }
@@ -282,7 +282,7 @@ export const abandon = mutation({
     if (book.status !== "active") {
       throw new ConvexError("This book isn't active.");
     }
-    await ctx.db.patch(book._id, {
+    await ctx.db.patch("books", book._id, {
       status: "abandoned",
       endedDay: todayInTz(undefined),
     });
@@ -294,7 +294,7 @@ export const abandon = mutation({
 export const detail = query({
   args: { bookId: v.id("books") },
   handler: async (ctx, args) => {
-    const book = await ctx.db.get(args.bookId);
+    const book = await ctx.db.get("books", args.bookId);
     if (book === null) {
       throw new ConvexError("Book not found.");
     }
@@ -315,13 +315,13 @@ export const detail = query({
     if (book.suggestedBy !== undefined) userIds.add(book.suggestedBy);
     const names = new Map<Id<"users">, string>();
     for (const userId of userIds) {
-      const u = await ctx.db.get(userId);
+      const u = await ctx.db.get("users", userId);
       names.set(userId, u?.name ?? u?.username ?? "former member");
     }
 
     let currentInfo = null;
     if (current !== undefined) {
-      const assignee = await ctx.db.get(current.assignedTo);
+      const assignee = await ctx.db.get("users", current.assignedTo);
       const assigneeToday = todayInTz(assignee?.timezone);
       const daysLate = current.dueDay
         ? Math.max(0, diffDays(assigneeToday, current.dueDay))
@@ -404,7 +404,7 @@ export const history = query({
       all.map(async (book) => {
         const loserNames = await Promise.all(
           (book.result?.loserIds ?? []).map(async (id) => {
-            const u = await ctx.db.get(id);
+            const u = await ctx.db.get("users", id);
             return u?.name ?? u?.username ?? "?";
           }),
         );

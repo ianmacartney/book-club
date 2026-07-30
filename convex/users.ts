@@ -30,7 +30,7 @@ export const createOrUpdateUser = internalMutation({
       // If the row is gone (e.g. an orphan we cleaned up), don't hard-fail the
       // sign-in — fall through and re-bind, so a stale account can't lock
       // someone out of the app entirely.
-      if (existing !== null && (await ctx.db.get(existing)) !== null) {
+      if (existing !== null && (await ctx.db.get("users", existing)) !== null) {
         return existing;
       }
     }
@@ -60,7 +60,7 @@ export const me = query({
     if (userId === null) {
       return null;
     }
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (user === null) {
       return null;
     }
@@ -89,7 +89,7 @@ export const updateProfile = mutation({
     if (name !== undefined && name.length === 0) {
       throw new ConvexError("Name can't be empty.");
     }
-    await ctx.db.patch(user._id, {
+    await ctx.db.patch("users", user._id, {
       ...(name !== undefined ? { name } : {}),
       ...(args.timezone !== undefined ? { timezone: args.timezone } : {}),
     });
@@ -108,7 +108,7 @@ export const ensureTimezone = mutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     if (user.timezone === undefined && isValidTimezone(args.timezone)) {
-      await ctx.db.patch(user._id, { timezone: args.timezone });
+      await ctx.db.patch("users", user._id, { timezone: args.timezone });
     }
     return null;
   },

@@ -24,7 +24,7 @@ async function memberByName(
   const memberIds = await clubMemberIds(ctx, clubId);
   const pool = includeGhosts
     ? await ctx.db.query("users").collect()
-    : (await Promise.all(memberIds.map((id) => ctx.db.get(id)))).filter(
+    : (await Promise.all(memberIds.map((id) => ctx.db.get("users", id)))).filter(
         (m) => m !== null,
       );
   const needle = name.trim().toLowerCase();
@@ -107,7 +107,7 @@ export const setMemberRole = internalMutation({
         role,
       });
     } else {
-      await ctx.db.patch(existing._id, { role });
+      await ctx.db.patch("memberships", existing._id, { role });
     }
     return null;
   },
@@ -167,7 +167,7 @@ export const renameUsername = internalMutation({
     }
 
     const before = user.username;
-    await ctx.db.patch(user._id, { username: next });
+    await ctx.db.patch("users", user._id, { username: next });
     return `Renamed ${user.name ?? "?"}: @${before} → @${next}`;
   },
 });
@@ -190,7 +190,7 @@ export const deleteOrphanUser = internalMutation({
   args: { userId: v.id("users") },
   returns: v.string(),
   handler: async (ctx, args) => {
-    const user = await ctx.db.get(args.userId);
+    const user = await ctx.db.get("users", args.userId);
     if (user === null) {
       throw new ConvexError(`No such user: ${args.userId}`);
     }
@@ -295,7 +295,7 @@ export const deleteOrphanUser = internalMutation({
           `${blockers.join(", ")}. This is not an orphan.`,
       );
     }
-    await ctx.db.delete(id);
+    await ctx.db.delete("users", id);
     return `Deleted orphan user ${user.name ?? "?"} (@${user.username})`;
   },
 });
@@ -355,7 +355,7 @@ export const backfillSubmission = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const book = await ctx.db.get(args.bookId);
+    const book = await ctx.db.get("books", args.bookId);
     if (book === null || book.status !== "active") {
       throw new ConvexError("Book not found or not active.");
     }
@@ -383,7 +383,7 @@ export const backfillSubmission = internalMutation({
       )
       .collect();
     for (const entry of billed) {
-      await ctx.db.delete(entry._id);
+      await ctx.db.delete("clouds", entry._id);
     }
 
     const isSkip = by._id !== current.assignedTo;
@@ -398,7 +398,7 @@ export const backfillSubmission = internalMutation({
         sectionId: current._id,
       });
     }
-    await ctx.db.patch(current._id, {
+    await ctx.db.patch("sections", current._id, {
       submission: {
         by: by._id,
         day: args.day,
@@ -411,7 +411,7 @@ export const backfillSubmission = internalMutation({
 
     const next = sections.find((s) => s.index === current.index + 1);
     if (next !== undefined) {
-      await ctx.db.patch(next._id, {
+      await ctx.db.patch("sections", next._id, {
         dueDay: addDays(args.day, DAYS_PER_SECTION),
       });
     } else {
@@ -615,7 +615,7 @@ export const backfillCheckin = internalMutation({
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", args.day))
       .unique();
     if (existing !== null) {
-      await ctx.db.delete(existing._id);
+      await ctx.db.delete("checkins", existing._id);
     }
     const clouds = await ctx.db
       .query("clouds")
@@ -623,7 +623,7 @@ export const backfillCheckin = internalMutation({
       .collect();
     for (const entry of clouds) {
       if (entry.source === "pushups_storm" || entry.source === "pushups_missed") {
-        await ctx.db.delete(entry._id);
+        await ctx.db.delete("clouds", entry._id);
       }
     }
     await ctx.db.insert("checkins", {

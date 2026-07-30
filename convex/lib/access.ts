@@ -16,7 +16,7 @@ export async function requireUser(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users">> {
   const userId = await currentUserId(ctx);
-  const user = userId === null ? null : await ctx.db.get(userId);
+  const user = userId === null ? null : await ctx.db.get("users", userId);
   if (user === null) {
     throw new ConvexError("Not signed in.");
   }
