@@ -32,7 +32,29 @@ if (urlDeps.length === 0) {
   process.exit(0);
 }
 
+/**
+ * pkg.pr.new rate-limits, and answers with a bare 404 when it does — the same
+ * status a pruned build would give. Retry before believing it.
+ */
+async function fetchTarball(url, attempts = 3) {
+  let reason = "unknown";
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return { ok: true, res };
+      reason = `HTTP ${res.status}`;
+    } catch (err) {
+      reason = err.message;
+    }
+    if (i < attempts - 1) {
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
+    }
+  }
+  return { ok: false, reason };
+}
+
 let failed = false;
+let unreachable = false;
 
 for (const [name, entry] of urlDeps) {
   const short = name.replace(/^node_modules\//, "");
@@ -40,12 +62,18 @@ for (const [name, entry] of urlDeps) {
     console.log(`⚠ ${short}: no integrity in lockfile, skipping`);
     continue;
   }
-  const res = await fetch(entry.resolved);
-  if (!res.ok) {
-    console.error(`✖ ${short}: ${entry.resolved} → HTTP ${res.status}`);
-    failed = true;
+  const attempt = await fetchTarball(entry.resolved);
+  if (!attempt.ok) {
+    // Don't fail the build on this: an unreachable URL says nothing about
+    // integrity, and a false failure here blocks shipping for no reason. A
+    // *persistent* failure does matter, hence the parting note below.
+    console.log(
+      `⚠ ${short}: could not fetch (${attempt.reason}) — ${entry.resolved}`,
+    );
+    unreachable = true;
     continue;
   }
+  const res = attempt.res;
   const buf = Buffer.from(await res.arrayBuffer());
   const live = `sha512-${createHash("sha512").update(buf).digest("base64")}`;
 
@@ -69,6 +97,18 @@ for (const [name, entry] of urlDeps) {
       ].join("\n"),
     );
   }
+}
+
+if (unreachable) {
+  console.log(
+    [
+      "",
+      "⚠ At least one URL dependency was unreachable after retries. Usually this",
+      "  is pkg.pr.new rate-limiting and safe to ignore. If it persists, the",
+      "  build upstream may have been pruned — EAS's clean `npm ci` would then",
+      "  fail too, so re-pin to a commit that still resolves.",
+    ].join("\n"),
+  );
 }
 
 process.exit(failed ? 1 : 0);

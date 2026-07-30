@@ -222,6 +222,24 @@ new binary so OTA and native stay matched.
   `npm pkg set` command to re-pin (it reads the current commit from the
   tarball's `x-commit-key` header). Re-pin rather than going back to `@reboot`
   after any auth bump, or the failure returns.
+- **pkg.pr.new disappearing entirely.** Separate failure from drift: the whole
+  package can start 404ing ("Registry or repository not found") for *every*
+  URL form, tag and commit sha alike — builds there aren't kept forever. Seen
+  2026-07-29. While it lasts, **cloud builds can't install and will fail**, but
+  **OTA is unaffected** (`eas update` bundles from the `node_modules` you
+  already have) — so you can still ship JS to the club, just not cut a binary.
+  `verify:deps` warns without failing, since an unreachable URL says nothing
+  about integrity. The durable fix if it recurs is to vendor the tarball into
+  `mobile/` (`npm pack` the installed copy, commit it, depend on
+  `file:vendor/...`), which removes the network from the critical path; the
+  reboot line isn't on the npm registry, so there's no registry fallback.
+- **Never run `npm ci` while a dependency source is down.** `npm ci` *deletes*
+  `node_modules` before installing, so a failed install leaves you with nothing
+  and no way to reinstall — it takes out local dev, `expo export`, and OTA all
+  at once. Recovery, as long as the tarball is still in the npm cache:
+  `npm ci --offline`. Prefer `npm install` (non-destructive) when you're unsure
+  upstream is healthy, and keep `verify:deps` (which only fetches, never
+  installs) as the thing you run to check.
 - **The shared `../convex/_generated` import (this failed build #4, the
   Bundle JavaScript phase).** The app imports the generated Convex API from
   *outside* `mobile/`. **EAS Build uploads only the `mobile/` directory** (no
