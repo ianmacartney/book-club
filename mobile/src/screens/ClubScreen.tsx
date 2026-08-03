@@ -37,6 +37,7 @@ export function ClubScreen() {
       <Profile />
       <Notifications isGhost={isGhost} />
       <InvitesSection />
+      <Feedback />
       <SignOut />
     </ScrollView>
   );
@@ -363,6 +364,62 @@ function InvitesSection() {
   );
 }
 
+function Feedback() {
+  const { submitFeedback } = useActions();
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const send = async () => {
+    const trimmed = message.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    setSending(true);
+    try {
+      if (await submitFeedback(trimmed)) {
+        setMessage("");
+        setSent(true);
+        setTimeout(() => setSent(false), 2500);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <View>
+      <Text style={styles.heading}>Feedback</Text>
+      <Muted>
+        Something broken, missing, or annoying? Tell us — it goes straight to
+        whoever's tending the app.
+      </Muted>
+      <TextInput
+        style={styles.feedbackInput}
+        value={message}
+        onChangeText={(t) => {
+          setMessage(t);
+          setSent(false);
+        }}
+        placeholder="What's on your mind?"
+        placeholderTextColor={colors.inkFaint}
+        multiline
+        textAlignVertical="top"
+      />
+      <View style={styles.feedbackActions}>
+        {sent ? <Text style={styles.savedNote}>Sent — thanks ✓</Text> : null}
+        <View style={{ flex: 1 }} />
+        <Btn
+          onPress={() => void send()}
+          disabled={sending || message.trim().length === 0}
+        >
+          {sending ? "Sending…" : "Send feedback"}
+        </Btn>
+      </View>
+    </View>
+  );
+}
+
 function SignOut() {
   const { signOut } = useAuthActions();
   return (
@@ -457,6 +514,22 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     color: colors.ink,
     fontWeight: "600",
+  },
+  feedbackInput: {
+    marginTop: space(3),
+    minHeight: 96,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: space(3),
+    fontSize: 15,
+    color: colors.ink,
+  },
+  feedbackActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(3),
+    marginTop: space(3),
   },
   footer: { textAlign: "center" },
   signOut: {

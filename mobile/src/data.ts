@@ -194,6 +194,7 @@ export function useActions(): {
     timezone?: string;
   }) => Promise<boolean>;
   createInvite: (forName?: string) => Promise<string | null>;
+  submitFeedback: (message: string) => Promise<boolean>;
 } {
   const checkIn = useMutation(api.pushups.submit);
   const submitSection = useMutation(api.books.submitSection);
@@ -201,6 +202,7 @@ export function useActions(): {
   const registerPushToken = useMutation(api.notifications.registerPushToken);
   const updateProfile = useMutation(api.users.updateProfile);
   const createInvite = useMutation(api.clubs.createInvite);
+  const submitFeedback = useMutation(api.feedback.submit);
   const clubId = useClubId();
   return {
     checkIn: (status) => {
@@ -234,6 +236,15 @@ export function useActions(): {
       } catch (err) {
         alertError(err);
         return null;
+      }
+    },
+    submitFeedback: async (message) => {
+      try {
+        await submitFeedback({ message, clubId });
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
       }
     },
   };

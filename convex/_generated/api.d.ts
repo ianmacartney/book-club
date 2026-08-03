@@ -13,6 +13,7 @@ import type * as books from "../books.js";
 import type * as clubs from "../clubs.js";
 import type * as crons from "../crons.js";
 import type * as feed from "../feed.js";
+import type * as feedback from "../feedback.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_clouds from "../lib/clouds.js";
 import type * as lib_days from "../lib/days.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   clubs: typeof clubs;
   crons: typeof crons;
   feed: typeof feed;
+  feedback: typeof feedback;
   "lib/access": typeof lib_access;
   "lib/clouds": typeof lib_clouds;
   "lib/days": typeof lib_days;

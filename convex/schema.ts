@@ -169,6 +169,14 @@ export default defineSchema({
     .index("pollRound", ["pollId", "round"])
     .index("pollRoundUser", ["pollId", "round", "userId"]),
 
+  // Free-form feedback from members about the app itself.
+  feedback: defineTable({
+    userId: v.id("users"),
+    message: v.string(),
+    // The club the member was in when they wrote it — context, not required.
+    clubId: v.optional(v.id("clubs")),
+  }).index("userId", ["userId"]),
+
   // Sunday snapshots, compiled by cron.
   summaries: defineTable({
     clubId: v.id("clubs"),
