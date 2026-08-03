@@ -1,16 +1,25 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useShelf } from "../data";
 import { yearOf } from "../lib";
 import { colors, serif, space } from "../theme";
 import { Muted, Pill } from "../ui";
+import { BookScreen } from "./BookScreen";
 
 /**
  * Every book the club has ever read, newest first, numbered from the
- * beginning of history. Voting on the next book stays on the web app for
- * now — the phone is for the daily pulse.
+ * beginning of history. Tapping one opens its full page — the same Book-tab
+ * view, read-only, with the frozen final standings and every section's notes.
+ * Voting on the next book stays on the web app for now — the phone is for the
+ * daily pulse.
  */
 export function LibraryScreen() {
   const shelf = useShelf();
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  if (openId !== null) {
+    return <BookScreen bookId={openId} onBack={() => setOpenId(null)} />;
+  }
 
   if (shelf === undefined) {
     return (
@@ -38,9 +47,14 @@ export function LibraryScreen() {
         </Muted>
       )}
       {numbered.map((b, i) => (
-        <View
+        <Pressable
           key={b._id}
-          style={[styles.book, i < numbered.length - 1 && styles.bookBorder]}
+          style={({ pressed }) => [
+            styles.book,
+            i < numbered.length - 1 && styles.bookBorder,
+            pressed && styles.bookPressed,
+          ]}
+          onPress={() => setOpenId(b._id)}
         >
           <View style={styles.spine} />
           <View style={styles.bookBody}>
@@ -62,7 +76,7 @@ export function LibraryScreen() {
               </Text>
             )}
           </View>
-        </View>
+        </Pressable>
       ))}
       <Muted style={styles.footer}>
         Suggesting and voting on the next book lives on the web app for now.
@@ -86,6 +100,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
   },
+  bookPressed: { opacity: 0.55 },
   spine: {
     width: 3,
     borderRadius: 2,

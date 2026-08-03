@@ -73,18 +73,28 @@ export function useMe(): Me | null | undefined {
   return useQuery(api.users.me);
 }
 
-/** undefined = still loading; null = no active book. */
-export function useBook(): BookDetail | null | undefined {
+/**
+ * Book detail for the Book tab and the Library's per-book view. Pass a
+ * `bookId` to browse a specific (usually finished) book; omit it to follow
+ * the club's active book. undefined = still loading; null = no active book.
+ */
+export function useBook(bookId?: string): BookDetail | null | undefined {
   const home = useHome();
-  const bookId = home?.activeBookId ?? null;
+  const activeBookId = home?.activeBookId ?? null;
+  const targetId = bookId ?? activeBookId;
   const detail = useQuery(
     api.books.detail,
-    bookId !== null ? { bookId: bookId as Id<"books"> } : "skip",
+    targetId !== null ? { bookId: targetId as Id<"books"> } : "skip",
   );
+  // Browsing a specific book: home is irrelevant, just reflect the query.
+  if (bookId !== undefined) {
+    return detail;
+  }
+  // Following the active book: mirror the home load / no-active states.
   if (home === undefined) {
     return undefined;
   }
-  return bookId === null ? null : detail;
+  return activeBookId === null ? null : detail;
 }
 
 export function useShelf(): ShelfBook[] | undefined {
