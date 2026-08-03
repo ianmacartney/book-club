@@ -72,6 +72,19 @@ export default defineSchema({
     status: checkinStatus,
   }).index("userDay", ["userId", "day"]),
 
+  // Declared absences: "I'll be out of service Aug 3–10." While away the
+  // member owes one storm (1 cloud) per required day instead of the 2 clouds
+  // silence costs. Pushups are personal (see the clouds table), so a period
+  // isn't club-scoped — it covers every club the member owes pushups in.
+  offGridPeriods: defineTable({
+    userId: v.id("users"),
+    fromDay: v.string(), // inclusive, yyyy-MM-dd in the member's timezone
+    toDay: v.string(), // inclusive
+    note: v.optional(v.string()), // "backpacking, no signal"
+    // Usually the member themselves; an admin can file one on their behalf.
+    declaredBy: v.id("users"),
+  }).index("userFrom", ["userId", "fromDay"]),
+
   // Ledger of stormy clouds. Tallies are sums over a day range.
   clouds: defineTable({
     userId: v.id("users"),

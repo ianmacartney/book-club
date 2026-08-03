@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import { hasActiveMembership, requireUser } from "./lib/access";
 import { isPushupDay, timeNowInTz, todayInTz } from "./lib/days";
+import { offGridOn } from "./lib/offgrid";
 
 /**
  * Push notifications for the mobile app, via the Expo push notifications
@@ -332,6 +333,10 @@ export const sendReminders = internalMutation({
         prefs.reminderSentDay === today ||
         timeNowInTz(user.timezone) < prefs.reminderTime
       ) {
+        continue;
+      }
+      // Off the grid: they can't receive it, and their day is already settled.
+      if ((await offGridOn(ctx, user._id, today)) !== null) {
         continue;
       }
       const checkin = await ctx.db

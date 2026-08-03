@@ -54,6 +54,11 @@ export function isPushupDay(day: string): boolean {
   return weekdayOfDay(day) !== 0;
 }
 
+/** A real calendar day, written yyyy-MM-dd (so "2026-02-31" is not one). */
+export function isValidDay(day: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) && addDays(day, 0) === day;
+}
+
 export function isValidTimezone(timezone: string): boolean {
   try {
     new Intl.DateTimeFormat("en-CA", { timeZone: timezone });

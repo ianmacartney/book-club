@@ -65,7 +65,9 @@ Notes for agents:
 The club rules: daily pushups Mon–Sat (⭐ = did them, ⛈ = didn't = 1 cloud,
 silence = 2 clouds), one book at a time read in rotation (2 calendar days per
 section, 2 clouds per late day, skips cost 2 extra), most clouds at book end
-owes the punishment. Auth v2 docs snapshot: `.context/auth-v2-docs.md`.
+owes the punishment. Declaring yourself **off the grid** up front (out of
+service) buys a ⛈ per day away instead of silence's 2 — reading deadlines are
+untouched. Auth v2 docs snapshot: `.context/auth-v2-docs.md`.
 
 **This deployment holds the club's real data** (8 years imported from
 iMessage). Never insert test data; verify reads with queries before writes.
@@ -97,6 +99,13 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
   past due, `section_skip` = 2 (someone covered your section). Pushup clouds
   have no `clubId` (they count in every club); section clouds carry
   `clubId`/`bookId`/`sectionId`.
+- **Off-grid periods** (`offGridPeriods`, inclusive `fromDay`/`toDay` in the
+  member's tz, ≤ 90 days each, not club-scoped since pushups aren't):
+  `convex/offgrid.ts` is the member API (`declare` — future-dated only,
+  `cancel`, `mine`, `forClub`, `viewerStatus`). Declaring bills nothing; the
+  hourly rollover settles each day away as ⛈ (1 cloud) instead of missed (2),
+  so a member who turns out to have signal can still report a ⭐ and beat their
+  own commitment. `clubs:home` exposes `offGrid` per member.
 - **Finished books freeze their result** (`books.result.tallies` +
   `loserIds`). Historical standings never recompute from the ledger when a
   result exists — to fix an old standing, patch `result`, don't touch clouds.
@@ -142,6 +151,16 @@ npx convex run setup:deleteOrphanUser '{"userId":"<usersId>"}'
 # answers to it (by name or username) or if another account has claimed it:
 npx convex run setup:renameUsername \
   '{"clubId":"<club>","userName":"Tucker","newUsername":"Tucker"}'
+
+# File an off-grid absence relayed outside the app. Backdating is allowed here
+# (the member-facing offgrid:declare is future-only): it replaces overlapping
+# periods and rewrites already-settled silence into the ⛈ the absence buys.
+# fromDay defaults to the member's today, toDay to fromDay:
+npx convex run setup:setOffGrid \
+  '{"clubId":"<club>","userName":"Peter","fromDay":"2026-08-03","toDay":"2026-08-10","note":"no signal"}'
+# Drop periods overlapping a range (default: today onward). Clouds already
+# billed for days away stay — undo those with backfillCheckin:
+npx convex run setup:clearOffGrid '{"clubId":"<club>","userName":"Peter"}'
 
 # Historical imports: setup:importPastBook (whole finished/abandoned book,
 # dedupes on title+startedDay), setup:importCheckins (bulk, insert-if-absent,

@@ -9,6 +9,7 @@ import {
 } from "./lib/access";
 import { cloudsForUser } from "./lib/clouds";
 import { isPushupDay, todayInTz } from "./lib/days";
+import { offGridOn } from "./lib/offgrid";
 
 function generateInviteCode(): string {
   // Crypto-strength: the code is a bearer credential for joining the club.
@@ -176,6 +177,8 @@ export const home = query({
         const bookClouds = activeBook
           ? await cloudsForUser(ctx, userId, args.clubId, activeBook.startedDay)
           : 0;
+        // Declared absence: silence today costs them a ⛈️, not 2 clouds.
+        const offGrid = await offGridOn(ctx, userId, today);
         return {
           _id: userId,
           name: user.name ?? user.username,
@@ -184,6 +187,10 @@ export const home = query({
           isPushupDay: isPushupDay(today),
           checkinToday: checkin?.status ?? null,
           bookClouds,
+          offGrid:
+            offGrid === null
+              ? null
+              : { toDay: offGrid.toDay, note: offGrid.note ?? null },
         };
       }),
     );

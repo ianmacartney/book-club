@@ -5,7 +5,12 @@ import { MutationCtx, internalMutation } from "./_generated/server";
 import { DAYS_PER_SECTION, finishBook, startBookHelper } from "./books";
 import { clubMemberIds } from "./lib/access";
 import { accrueLateClouds } from "./lib/clouds";
-import { addDays } from "./lib/days";
+import { addDays, diffDays, isValidDay, todayInTz } from "./lib/days";
+import {
+  MAX_OFF_GRID_DAYS,
+  overlappingPeriods,
+  settleOffGridDays,
+} from "./lib/offgrid";
 import { checkinStatus } from "./schema";
 
 /**
@@ -666,5 +671,97 @@ export const backfillCheckin = internalMutation({
       });
     }
     return null;
+  },
+});
+
+/**
+ * File an off-grid period for a member — the admin twin of `offgrid:declare`,
+ * for absences relayed in the group chat instead of the app. Unlike the
+ * member-facing version this may be backdated: it replaces any overlapping
+ * periods, then converts days that already rolled over as silence (2 clouds)
+ * into the storm (1 cloud) the absence buys. Re-running is safe.
+ *
+ * `toDay` defaults to `fromDay` (a single day away), and `fromDay` to the
+ * member's today.
+ */
+export const setOffGrid = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    userName: v.string(),
+    fromDay: v.optional(v.string()), // yyyy-MM-dd in the member's timezone
+    toDay: v.optional(v.string()), // inclusive; defaults to fromDay
+    note: v.optional(v.string()),
+  },
+  returns: v.object({
+    fromDay: v.string(),
+    toDay: v.string(),
+    replaced: v.number(),
+    daysCorrected: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await memberByName(ctx, args.clubId, args.userName);
+    const today = todayInTz(user.timezone);
+    const fromDay = args.fromDay ?? today;
+    const toDay = args.toDay ?? fromDay;
+    for (const day of [fromDay, toDay]) {
+      if (!isValidDay(day)) {
+        throw new ConvexError(`"${day}" isn't a day (expected yyyy-MM-dd).`);
+      }
+    }
+    if (toDay < fromDay) {
+      throw new ConvexError("toDay can't be before fromDay.");
+    }
+    // The cap keeps `overlappingPeriods` index scans (and the settle loop
+    // below) bounded — long absences go in as consecutive periods.
+    if (diffDays(toDay, fromDay) + 1 > MAX_OFF_GRID_DAYS) {
+      throw new ConvexError(
+        `That's longer than ${MAX_OFF_GRID_DAYS} days — file it in stretches.`,
+      );
+    }
+    const existing = await overlappingPeriods(ctx, user._id, fromDay, toDay);
+    for (const period of existing) {
+      await ctx.db.delete("offGridPeriods", period._id);
+    }
+    await ctx.db.insert("offGridPeriods", {
+      userId: user._id,
+      fromDay,
+      toDay,
+      note: args.note?.trim() || undefined,
+      declaredBy: user._id,
+    });
+    const daysCorrected = await settleOffGridDays(
+      ctx,
+      user._id,
+      fromDay,
+      toDay,
+      today,
+    );
+    return { fromDay, toDay, replaced: existing.length, daysCorrected };
+  },
+});
+
+/**
+ * Drop every off-grid period overlapping a range (default: from the member's
+ * today onward). Clouds already billed for days away are left alone — undoing
+ * those is `backfillCheckin`'s job.
+ */
+export const clearOffGrid = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    userName: v.string(),
+    fromDay: v.optional(v.string()),
+    toDay: v.optional(v.string()),
+  },
+  returns: v.object({ removed: v.number() }),
+  handler: async (ctx, args) => {
+    const user = await memberByName(ctx, args.clubId, args.userName);
+    const today = todayInTz(user.timezone);
+    const fromDay = args.fromDay ?? today;
+    const toDay = args.toDay ?? addDays(fromDay, MAX_OFF_GRID_DAYS);
+    const periods = await overlappingPeriods(ctx, user._id, fromDay, toDay);
+    for (const period of periods) {
+      await ctx.db.delete("offGridPeriods", period._id);
+    }
+    return { removed: periods.length };
   },
 });

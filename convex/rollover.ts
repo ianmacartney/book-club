@@ -1,6 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { accrueLateClouds } from "./lib/clouds";
 import { addDays, dayInTz, isPushupDay, todayInTz } from "./lib/days";
+import { offGridOn } from "./lib/offgrid";
 
 /** How far back the missed-pushups sweep looks, in case cron runs were missed. */
 const CATCH_UP_DAYS = 7;
@@ -11,7 +12,8 @@ const CATCH_UP_DAYS = 7;
  *
  *  1. Anyone whose day ended without a pushup report gets a "missed"
  *     check-in and 2 stormy clouds — swept over the last week so a cron
- *     outage can't quietly forgive a day.
+ *     outage can't quietly forgive a day. Days inside a declared off-grid
+ *     period settle as a ⛈️ (1 cloud) instead.
  *  2. Every active book's current section accrues 2 clouds per full day
  *     it's overdue, reckoned in the assignee's timezone.
  */
@@ -51,16 +53,18 @@ export const processAll = internalMutation({
         if (checkin !== null) {
           continue;
         }
+        // A declared absence caps the day at the storm they committed to.
+        const away = (await offGridOn(ctx, user._id, day)) !== null;
         await ctx.db.insert("checkins", {
           userId: user._id,
           day,
-          status: "missed",
+          status: away ? "storm" : "missed",
         });
         await ctx.db.insert("clouds", {
           userId: user._id,
           day,
-          count: 2,
-          source: "pushups_missed",
+          count: away ? 1 : 2,
+          source: away ? "pushups_storm" : "pushups_missed",
         });
       }
     }
