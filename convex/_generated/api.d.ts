@@ -22,6 +22,7 @@ import type * as notifications from "../notifications.js";
 import type * as offgrid from "../offgrid.js";
 import type * as polls from "../polls.js";
 import type * as pushups from "../pushups.js";
+import type * as replies from "../replies.js";
 import type * as rollover from "../rollover.js";
 import type * as setup from "../setup.js";
 import type * as summaries from "../summaries.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   offgrid: typeof offgrid;
   polls: typeof polls;
   pushups: typeof pushups;
+  replies: typeof replies;
   rollover: typeof rollover;
   setup: typeof setup;
   summaries: typeof summaries;

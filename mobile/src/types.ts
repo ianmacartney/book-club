@@ -36,6 +36,15 @@ export type Me = {
   today: string;
 };
 
+export type FeedReply = {
+  replyId: string;
+  day: string;
+  at: number;
+  userId: string;
+  name: string;
+  body: string;
+};
+
 export type FeedEvent =
   | {
       type: "checkin";
@@ -53,6 +62,7 @@ export type FeedEvent =
       name: string;
       bookId: string;
       bookTitle: string;
+      sectionId: string;
       sectionIndex: number;
       sectionTitle: string;
       assigneeName: string;
@@ -60,6 +70,20 @@ export type FeedEvent =
       quotes: string;
       thoughts: string;
       isLastSection: boolean;
+      replies: FeedReply[];
+    }
+  | {
+      type: "reply";
+      day: string;
+      at: number;
+      replyId: string;
+      userId: string;
+      name: string;
+      body: string;
+      sectionId: string;
+      sectionTitle: string;
+      bookTitle: string;
+      writerName: string;
     }
   | {
       type: "bookStarted";

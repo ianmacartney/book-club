@@ -271,6 +271,12 @@ export const deleteOrphanUser = internalMutation({
     );
     note(
       // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
+      (await ctx.db.query("replies").collect()).filter((r) => r.userId === id)
+        .length,
+      "reply/replies",
+    );
+    note(
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
       (await ctx.db.query("clubs").collect()).filter((c) => c.createdBy === id)
         .length,
       "club(s) created",

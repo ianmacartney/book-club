@@ -193,6 +193,7 @@ export function useFeed(): {
 export function useActions(): {
   checkIn: (status: "star" | "storm") => void;
   submitSection: (sectionId: string, quotes: string, thoughts: string) => void;
+  postReply: (sectionId: string, body: string) => Promise<boolean>;
   updateSettings: (patch: {
     reminderTime?: string | null;
     notifyOnStars?: boolean;
@@ -208,6 +209,7 @@ export function useActions(): {
 } {
   const checkIn = useMutation(api.pushups.submit);
   const submitSection = useMutation(api.books.submitSection);
+  const postReply = useMutation(api.replies.post);
   const updateSettings = useMutation(api.notifications.updateSettings);
   const registerPushToken = useMutation(api.notifications.registerPushToken);
   const updateProfile = useMutation(api.users.updateProfile);
@@ -224,6 +226,17 @@ export function useActions(): {
         quotes,
         thoughts,
       }).catch(alertError);
+    },
+    // Reports success so the composer can hand a rejected draft back to the
+    // writer instead of swallowing it.
+    postReply: async (sectionId, body) => {
+      try {
+        await postReply({ sectionId: sectionId as Id<"sections">, body });
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
     },
     updateSettings: (patch) => {
       updateSettings(patch).catch(alertError);

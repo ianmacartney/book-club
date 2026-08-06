@@ -17,12 +17,13 @@ import { offGridOn } from "./lib/offgrid";
  * Push notifications for the mobile app, via the Expo push notifications
  * component. Expo push tokens live inside the component; this module owns
  * the app-level preferences (convex/schema.ts `notificationPrefs`) and the
- * three kinds of sends:
+ * four kinds of sends:
  *
  *  1. section submissions — everyone hears a chapter landed; the next
  *     reader gets a "you're up" regardless of preferences;
- *  2. a daily pushup reminder at a member-chosen local time (cron below);
- *  3. opt-in ⭐️ announcements when a member logs their pushups.
+ *  2. replies to a write-up, on the same switch as the write-ups themselves;
+ *  3. a daily pushup reminder at a member-chosen local time (cron below);
+ *  4. opt-in ⭐️ announcements when a member logs their pushups.
  */
 export const push = new PushNotifications(components.pushNotifications);
 
@@ -232,6 +233,47 @@ export async function notifySectionSubmitted(
         },
       });
     }
+  }
+  await sendBatch(ctx, sends);
+}
+
+/**
+ * Someone replied to a section write-up. Whoever wrote the section up always
+ * hears it — the reply is addressed to them, the way "you're up" is — and
+ * everyone else rides `notifyOnSubmissions`, the switch for book talk.
+ */
+export async function notifyReply(
+  ctx: MutationCtx,
+  args: {
+    by: Doc<"users">;
+    body: string;
+    bookId: Id<"books">;
+    sectionTitle: string;
+    writerId: Id<"users">;
+    memberIds: Id<"users">[];
+  },
+): Promise<void> {
+  const title = `${displayName(args.by)} on “${args.sectionTitle}”`;
+  const body = asBody(args.body);
+  const sends: Send[] = [];
+  for (const memberId of args.memberIds) {
+    if (memberId === args.by._id) {
+      continue;
+    }
+    if (memberId !== args.writerId) {
+      const prefs = await prefsFor(ctx, memberId);
+      if (!(prefs?.notifyOnSubmissions ?? DEFAULT_PREFS.notifyOnSubmissions)) {
+        continue;
+      }
+    }
+    sends.push({
+      userId: memberId,
+      notification: {
+        title,
+        body,
+        data: { type: "reply", bookId: args.bookId },
+      },
+    });
   }
   await sendBatch(ctx, sends);
 }

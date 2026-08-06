@@ -10,8 +10,9 @@ import { addDays, todayInTz } from "./lib/days";
  * (quotes + thoughts inline), book starts/finishes, and Sunday summaries.
  *
  * Nothing is denormalized, so all 8 years of imported history is already in
- * the feed. When general messages/discussions arrive, they become one more
- * event source merged in here.
+ * the feed. Replies to a write-up are the one thing members type straight
+ * into the timeline; unattached chat would become one more source merged in
+ * here.
  *
  * Paging is by calendar-day windows: each call returns every event in
  * [from, through] plus `nextThrough` to request the older window.
@@ -19,6 +20,15 @@ import { addDays, todayInTz } from "./lib/days";
 
 const DEFAULT_WINDOW_DAYS = 14;
 const MAX_WINDOW_DAYS = 60;
+
+export type FeedReply = {
+  replyId: Id<"replies">;
+  day: string;
+  at: number;
+  userId: Id<"users">;
+  name: string;
+  body: string;
+};
 
 export type FeedEvent =
   | {
@@ -37,6 +47,7 @@ export type FeedEvent =
       name: string;
       bookId: Id<"books">;
       bookTitle: string;
+      sectionId: Id<"sections">; // what a reply threads onto
       sectionIndex: number;
       sectionTitle: string;
       assigneeName: string;
@@ -44,6 +55,22 @@ export type FeedEvent =
       quotes: string;
       thoughts: string;
       isLastSection: boolean;
+      replies: FeedReply[];
+    }
+  | {
+      // A reply whose write-up sits outside this window — it stands on its
+      // own day, naming what it answers.
+      type: "reply";
+      day: string;
+      at: number;
+      replyId: Id<"replies">;
+      userId: Id<"users">;
+      name: string;
+      body: string;
+      sectionId: Id<"sections">;
+      sectionTitle: string;
+      bookTitle: string;
+      writerName: string;
     }
   | {
       type: "bookStarted";
@@ -131,6 +158,35 @@ export const forClub = query({
       }
     }
 
+    // --- Replies, grouped by the write-up they answer ----------------------
+    // A reply belongs to the window holding its own day, like everything
+    // else: nested under its write-up when that lands in the same window,
+    // standalone (naming the write-up) when the talk outlived it. Either
+    // way it appears exactly once across the windows.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
+    const replyRows = await ctx.db
+      .query("replies")
+      .withIndex("clubDay", (q) =>
+        q.eq("clubId", args.clubId).gte("day", from).lte("day", through),
+      )
+      .collect();
+    const threads = new Map<Id<"sections">, FeedReply[]>();
+    for (const r of replyRows) {
+      const thread = threads.get(r.sectionId) ?? [];
+      thread.push({
+        replyId: r._id,
+        day: r.day,
+        at: r._creationTime,
+        userId: r.userId,
+        name: await nameOf(ctx, names, r.userId),
+        body: r.body,
+      });
+      threads.set(r.sectionId, thread);
+    }
+    for (const thread of threads.values()) {
+      thread.sort((a, b) => a.at - b.at);
+    }
+
     // --- Books: starts, ends, and submissions in the window ----------------
     // A club accrues a few dozen books over the years; scanning them is cheap
     // and only books overlapping the window pay for a sections read.
@@ -210,6 +266,7 @@ export const forClub = query({
           name: await nameOf(ctx, names, sub.by),
           bookId: book._id,
           bookTitle: book.title,
+          sectionId: s._id,
           sectionIndex: s.index,
           sectionTitle: s.title,
           assigneeName: await nameOf(ctx, names, s.assignedTo),
@@ -217,6 +274,31 @@ export const forClub = query({
           quotes: sub.quotes,
           thoughts: sub.thoughts,
           isLastSection: s.index === lastIndex,
+          // Claimed by the write-up; whatever's left over stands alone below.
+          replies: threads.get(s._id) ?? [],
+        });
+        threads.delete(s._id);
+      }
+    }
+
+    // --- Replies whose write-up isn't in this window ------------------------
+    for (const [sectionId, thread] of threads) {
+      const section = await ctx.db.get("sections", sectionId);
+      const sub = section?.submission;
+      const book =
+        section === null ? null : await ctx.db.get("books", section.bookId);
+      if (section === null || sub === undefined || book === null) {
+        continue;
+      }
+      const writerName = await nameOf(ctx, names, sub.by);
+      for (const reply of thread) {
+        events.push({
+          type: "reply",
+          ...reply,
+          sectionId,
+          sectionTitle: section.title,
+          bookTitle: book.title,
+          writerName,
         });
       }
     }

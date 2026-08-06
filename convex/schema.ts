@@ -152,6 +152,20 @@ export default defineSchema({
     submission: v.optional(submissionValidator),
   }).index("bookIdx", ["bookId", "index"]),
 
+  // The club talking back: a reply to a section's write-up. Threads only
+  // hang off written-up sections, so every one of them is rooted in a
+  // chapter summary in the feed.
+  replies: defineTable({
+    // Denormalized from the section's book so the feed can read a club's
+    // replies by day — the same indexed day-window scan the rest of the
+    // timeline is built from.
+    clubId: v.id("clubs"),
+    sectionId: v.id("sections"),
+    userId: v.id("users"),
+    body: v.string(),
+    day: v.string(), // yyyy-MM-dd in the author's timezone
+  }).index("clubDay", ["clubId", "day"]),
+
   polls: defineTable({
     clubId: v.id("clubs"),
     createdBy: v.id("users"),

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -15,15 +15,23 @@ import { prettyDay, statusGlyph } from "../lib";
 import { colors, radius, serif, space } from "../theme";
 import { Btn, Muted, Rule } from "../ui";
 import { Avatar } from "../ui";
-import type { FeedEvent } from "../types";
+import type { FeedEvent, FeedReply } from "../types";
 
 /**
  * The club as it actually lives: a feed. Stars and storms roll in as light
  * avatar-and-emoji marks, section write-ups arrive as letters (quotes set in
  * serif), Sunday tallies and book milestones sit centered like system
- * messages. General chat messages will slot into the same stream later.
+ * messages. Replies nest under the write-up they answer; tapping Reply turns
+ * the check-in composer into a message box aimed at that thread.
  * Ornament is kept to a minimum — spacing and alignment do the separating.
  */
+
+/** The write-up a reply is being typed at. */
+type ReplyTarget = {
+  sectionId: string;
+  sectionTitle: string;
+  writerName: string;
+};
 
 type Row =
   | { key: string; kind: "day"; day: string }
@@ -55,7 +63,11 @@ function buildRows(events: FeedEvent[]): Row[] {
       }
     } else {
       rows.push({
-        key: `${event.type}-${event.day}-${event.at}`,
+        // Two replies can share a millisecond; their ids can't.
+        key:
+          event.type === "reply"
+            ? `reply-${event.replyId}`
+            : `${event.type}-${event.day}-${event.at}`,
         kind: "event",
         event,
       });
@@ -68,6 +80,11 @@ function buildRows(events: FeedEvent[]): Row[] {
 export function FeedScreen() {
   const { events, hasMore, loadOlder } = useFeed();
   const rows = useMemo(() => (events ? buildRows(events) : []), [events]);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  const renderRow = useCallback(
+    ({ item }: { item: Row }) => <FeedRow row={item} onReply={setReplyTo} />,
+    [],
+  );
 
   if (events === undefined) {
     return (
@@ -78,11 +95,16 @@ export function FeedScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    // The tab bar sits below us, and KeyboardAvoidingView measures its own
+    // frame, so "padding" lifts the composer to exactly the keyboard's top.
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.container}
+    >
       <FlatList
         data={rows}
         keyExtractor={(row) => row.key}
-        renderItem={({ item }) => <FeedRow row={item} />}
+        renderItem={renderRow}
         inverted
         // Hold the reader's place: older pages appending at the array end
         // and fresh events landing at index 0 must not shift the viewport.
@@ -104,12 +126,16 @@ export function FeedScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
-      <Composer />
-    </View>
+      {replyTo === null ? (
+        <Composer />
+      ) : (
+        <ReplyBar target={replyTo} onDismiss={() => setReplyTo(null)} />
+      )}
+    </KeyboardAvoidingView>
   );
 }
 
-function FeedRow(props: { row: Row }) {
+function FeedRow(props: { row: Row; onReply: (to: ReplyTarget) => void }) {
   const { row } = props;
   switch (row.kind) {
     case "day":
@@ -117,7 +143,7 @@ function FeedRow(props: { row: Row }) {
     case "checkins":
       return <CheckinCluster events={row.events} />;
     case "event":
-      return <EventItem event={row.event} />;
+      return <EventItem event={row.event} onReply={props.onReply} />;
   }
 }
 
@@ -136,7 +162,10 @@ function CheckinCluster(props: {
   );
 }
 
-function EventItem(props: { event: FeedEvent }) {
+function EventItem(props: {
+  event: FeedEvent;
+  onReply: (to: ReplyTarget) => void;
+}) {
   const { event } = props;
   switch (event.type) {
     case "submission":
@@ -162,6 +191,48 @@ function EventItem(props: { event: FeedEvent }) {
             {event.isLastSection && (
               <Text style={styles.lastSection}>— the final section 📕</Text>
             )}
+            {event.replies.length > 0 && (
+              <View style={styles.thread}>
+                {event.replies.map((reply) => (
+                  <ReplyLine key={reply.replyId} reply={reply} />
+                ))}
+              </View>
+            )}
+            <ReplyCta
+              onPress={() =>
+                props.onReply({
+                  sectionId: event.sectionId,
+                  sectionTitle: event.sectionTitle,
+                  writerName: event.name,
+                })
+              }
+            />
+          </View>
+        </View>
+      );
+    // A reply that outlived its write-up's window: it names what it answers
+    // instead of nesting under it.
+    case "reply":
+      return (
+        <View style={styles.entry}>
+          <Avatar name={event.name} size={30} />
+          <View style={styles.entryBody}>
+            <Text style={styles.entryName}>
+              {event.name}
+              <Text style={styles.entryMeta}>
+                {"  "}on {event.writerName}'s “{event.sectionTitle}”
+              </Text>
+            </Text>
+            <Text style={styles.thoughtsText}>{event.body}</Text>
+            <ReplyCta
+              onPress={() =>
+                props.onReply({
+                  sectionId: event.sectionId,
+                  sectionTitle: event.sectionTitle,
+                  writerName: event.writerName,
+                })
+              }
+            />
           </View>
         </View>
       );
@@ -217,9 +288,96 @@ function EventItem(props: { event: FeedEvent }) {
   }
 }
 
+function ReplyLine(props: { reply: FeedReply }) {
+  return (
+    <View style={styles.replyLine}>
+      <Avatar name={props.reply.name} size={20} />
+      <Text style={styles.replyBody}>
+        <Text style={styles.replyName}>{props.reply.name}</Text>
+        {"  "}
+        {props.reply.body}
+      </Text>
+    </View>
+  );
+}
+
+function ReplyCta(props: { onPress: () => void }) {
+  return (
+    <Pressable onPress={props.onPress} hitSlop={8} style={styles.replyCtaHit}>
+      <Text style={styles.replyCta}>Reply</Text>
+    </Pressable>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Composer: today's check-in + "you're up" section entry point
+// Composer: today's check-in + "you're up" section entry point, or — while a
+// thread is picked — a message box aimed at it
 // ---------------------------------------------------------------------------
+
+function ReplyBar(props: { target: ReplyTarget; onDismiss: () => void }) {
+  const { postReply } = useActions();
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const input = useRef<TextInput>(null);
+
+  // Also refocus when the reader aims at a different thread without the bar
+  // ever unmounting.
+  useEffect(() => {
+    input.current?.focus();
+  }, [props.target.sectionId]);
+
+  const ready = body.trim().length > 0 && !sending;
+  const send = async () => {
+    const text = body.trim();
+    if (text.length === 0 || sending) {
+      return;
+    }
+    // Clear straight away so it reads like chat; hand the draft back if the
+    // server turns it down.
+    setBody("");
+    setSending(true);
+    const ok = await postReply(props.target.sectionId, text);
+    setSending(false);
+    if (!ok) {
+      setBody(text);
+    }
+  };
+
+  return (
+    <View style={styles.composer}>
+      <View style={styles.replyingTo}>
+        <Text style={styles.replyingToText} numberOfLines={1}>
+          Replying to {props.target.writerName}'s “{props.target.sectionTitle}”
+        </Text>
+        <Pressable onPress={props.onDismiss} hitSlop={10}>
+          <Text style={styles.replyingToClose}>✕</Text>
+        </Pressable>
+      </View>
+      <View style={styles.replyRow}>
+        <TextInput
+          ref={input}
+          style={styles.replyInput}
+          multiline
+          placeholder="Say something…"
+          placeholderTextColor={colors.inkFaint}
+          value={body}
+          onChangeText={setBody}
+        />
+        <Pressable
+          onPress={send}
+          disabled={!ready}
+          style={({ pressed }) => [
+            styles.sendBtn,
+            !ready && styles.sendBtnOff,
+            pressed && { opacity: 0.75 },
+          ]}
+        >
+          <Text style={styles.sendBtnText}>Send</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
 
 function Composer() {
   const home = useHome();
@@ -433,6 +591,52 @@ const styles = StyleSheet.create({
   },
   thoughtsText: { fontSize: 14, lineHeight: 20, color: colors.ink },
   lastSection: { fontSize: 13, color: colors.inkSoft, fontStyle: "italic" },
+  thread: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.inkFaint,
+    paddingLeft: space(3),
+    marginTop: space(1),
+    gap: space(2),
+  },
+  replyLine: { flexDirection: "row", alignItems: "flex-start", gap: space(2) },
+  replyBody: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.ink },
+  replyName: { fontWeight: "700", color: colors.accent },
+  replyCtaHit: { alignSelf: "flex-start" },
+  replyCta: { fontSize: 12, fontWeight: "700", color: colors.inkFaint },
+  replyingTo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2),
+  },
+  replyingToText: { flex: 1, fontSize: 12, color: colors.inkSoft },
+  replyingToClose: { fontSize: 13, fontWeight: "700", color: colors.inkSoft },
+  replyRow: { flexDirection: "row", alignItems: "flex-end", gap: space(2) },
+  replyInput: {
+    flex: 1,
+    maxHeight: 120,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    paddingHorizontal: space(3),
+    paddingTop: space(2),
+    paddingBottom: space(2),
+    fontSize: 15,
+    color: colors.ink,
+    textAlignVertical: "top",
+  },
+  sendBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingHorizontal: space(4),
+    paddingVertical: space(2.5),
+  },
+  sendBtnOff: { opacity: 0.35 },
+  sendBtnText: { fontSize: 15, fontWeight: "600", color: colors.white },
   system: {
     alignItems: "center",
     gap: space(1),
