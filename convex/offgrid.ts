@@ -8,7 +8,14 @@ import {
   requireMembership,
   requireUser,
 } from "./lib/access";
-import { addDays, diffDays, isValidDay, todayInTz } from "./lib/days";
+import {
+  addDays,
+  diffDays,
+  isValidDay,
+  readerDay,
+  todayInTz,
+  viewerDay,
+} from "./lib/days";
 import {
   MAX_OFF_GRID_DAYS,
   offGridOn,
@@ -127,10 +134,12 @@ export const cancel = mutation({
 
 /** The viewer's current and upcoming absences, soonest first. */
 export const mine = query({
-  args: {},
-  handler: async (ctx) => {
+  // "Current and upcoming" is reckoned against the reader's own day, so it
+  // has to come in as an argument — see `viewerDay` in lib/days.
+  args: { viewerDay },
+  handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const today = todayInTz(user.timezone);
+    const today = readerDay(args.viewerDay, user.timezone);
     const periods = await overlappingPeriods(
       ctx,
       user._id,
@@ -145,9 +154,10 @@ export const mine = query({
 
 /** Who in the club is away or about to be — for the roster and standings. */
 export const forClub = query({
-  args: { clubId: v.id("clubs") },
+  args: { clubId: v.id("clubs"), viewerDay },
   handler: async (ctx, args) => {
-    await requireMembership(ctx, args.clubId);
+    const viewer = await requireMembership(ctx, args.clubId);
+    const viewerToday = readerDay(args.viewerDay, viewer.timezone);
     const memberships = await clubMemberships(ctx, args.clubId);
     const rows = await Promise.all(
       // Ghosts owe no pushups, so they're never off the grid.
@@ -158,7 +168,10 @@ export const forClub = query({
           if (user === null) {
             return [];
           }
-          const today = todayInTz(user.timezone);
+          // The reader's own day is theirs to declare; everyone else's runs
+          // on their own timezone, same as in `clubs:home`.
+          const today =
+            user._id === viewer._id ? viewerToday : todayInTz(user.timezone);
           const periods = await overlappingPeriods(
             ctx,
             user._id,
@@ -183,10 +196,10 @@ export const forClub = query({
 
 /** Is the viewer off the grid right now? Cheap check for the check-in UI. */
 export const viewerStatus = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { viewerDay },
+  handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const today = todayInTz(user.timezone);
+    const today = readerDay(args.viewerDay, user.timezone);
     const period = await offGridOn(ctx, user._id, today);
     return period === null ? null : shape(period, today);
   },
