@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { Doc } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
+import { MutationCtx, mutation, query } from "./_generated/server";
 import {
   clubMemberships,
   hasActiveMembership,
@@ -29,6 +29,51 @@ import {
  */
 
 const MAX_NOTE_CHARS = 200;
+
+/**
+ * The rules an absence has to satisfy whoever is writing it: real days, in
+ * order, no longer than the cap, and not overlapping another of your own.
+ * `exclude` is the period being edited, which can't clash with itself.
+ */
+async function checkRange(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  fromDay: string,
+  toDay: string,
+  exclude?: Id<"offGridPeriods">,
+): Promise<void> {
+  for (const day of [fromDay, toDay]) {
+    if (!isValidDay(day)) {
+      throw new ConvexError(`"${day}" isn't a day (expected yyyy-MM-dd).`);
+    }
+  }
+  if (toDay < fromDay) {
+    throw new ConvexError("The last day away can't be before the first.");
+  }
+  if (diffDays(toDay, fromDay) + 1 > MAX_OFF_GRID_DAYS) {
+    throw new ConvexError(
+      `That's longer than ${MAX_OFF_GRID_DAYS} days — declare it in stretches.`,
+    );
+  }
+  const clashes = (await overlappingPeriods(ctx, userId, fromDay, toDay)).filter(
+    (p) => p._id !== exclude,
+  );
+  if (clashes.length > 0) {
+    const [first] = clashes;
+    throw new ConvexError(
+      `That overlaps the absence you already have for ${first.fromDay} → ` +
+        `${first.toDay}.`,
+    );
+  }
+}
+
+function cleanNote(note: string | undefined): string | undefined {
+  const trimmed = note?.trim();
+  if (trimmed !== undefined && trimmed.length > MAX_NOTE_CHARS) {
+    throw new ConvexError("Keep the note short.");
+  }
+  return trimmed || undefined;
+}
 
 function shape(period: Doc<"offGridPeriods">, today: string) {
   return {
@@ -59,48 +104,63 @@ export const declare = mutation({
     }
     const today = todayInTz(user.timezone);
     const fromDay = args.fromDay ?? today;
-    for (const day of [fromDay, args.toDay]) {
-      if (!isValidDay(day)) {
-        throw new ConvexError(`"${day}" isn't a day (expected yyyy-MM-dd).`);
-      }
-    }
-    if (fromDay < today) {
+    if (isValidDay(fromDay) && fromDay < today) {
       throw new ConvexError(
         "Off-grid periods are declared up front — the earliest start is today.",
       );
     }
-    if (args.toDay < fromDay) {
-      throw new ConvexError("The last day away can't be before the first.");
-    }
-    if (diffDays(args.toDay, fromDay) + 1 > MAX_OFF_GRID_DAYS) {
-      throw new ConvexError(
-        `That's longer than ${MAX_OFF_GRID_DAYS} days — declare it in stretches.`,
-      );
-    }
-    const note = args.note?.trim();
-    if (note !== undefined && note.length > MAX_NOTE_CHARS) {
-      throw new ConvexError("Keep the note short.");
-    }
-    const clashes = await overlappingPeriods(
-      ctx,
-      user._id,
-      fromDay,
-      args.toDay,
-    );
-    if (clashes.length > 0) {
-      const [first] = clashes;
-      throw new ConvexError(
-        `You're already off the grid ${first.fromDay} → ${first.toDay}. ` +
-          `Cancel that first if the dates changed.`,
-      );
-    }
+    await checkRange(ctx, user._id, fromDay, args.toDay);
     return await ctx.db.insert("offGridPeriods", {
       userId: user._id,
       fromDay,
       toDay: args.toDay,
-      note: note || undefined,
+      note: cleanNote(args.note),
       declaredBy: user._id,
     });
+  },
+});
+
+/**
+ * Change the dates or the note on an absence you already declared — plans
+ * move. The start of a period already under way is fixed, since those days
+ * have been reckoned, but its end can still shift. Passing `note: null`
+ * clears it; omitting a field leaves it alone.
+ */
+export const update = mutation({
+  args: {
+    periodId: v.id("offGridPeriods"),
+    fromDay: v.optional(v.string()),
+    toDay: v.optional(v.string()),
+    note: v.optional(v.union(v.string(), v.null())),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const period = await ctx.db.get("offGridPeriods", args.periodId);
+    if (period === null || period.userId !== user._id) {
+      throw new ConvexError("That's not one of your off-grid periods.");
+    }
+    const today = todayInTz(user.timezone);
+    const fromDay = args.fromDay ?? period.fromDay;
+    const toDay = args.toDay ?? period.toDay;
+    if (period.fromDay <= today && fromDay !== period.fromDay) {
+      throw new ConvexError(
+        "That absence has already begun — you can move its end, not its start.",
+      );
+    }
+    if (period.fromDay > today && fromDay < today) {
+      throw new ConvexError("An absence can't start in the past.");
+    }
+    await checkRange(ctx, user._id, fromDay, toDay, period._id);
+    await ctx.db.patch("offGridPeriods", period._id, {
+      fromDay,
+      toDay,
+      // Days already spent away keep the ⛈️ they were billed, so shortening
+      // one is a change of plan, not a refund.
+      note:
+        args.note === undefined ? period.note : cleanNote(args.note ?? undefined),
+    });
+    return null;
   },
 });
 

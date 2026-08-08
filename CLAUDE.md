@@ -102,7 +102,8 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
 - **Off-grid periods** (`offGridPeriods`, inclusive `fromDay`/`toDay` in the
   member's tz, ≤ 90 days each, not club-scoped since pushups aren't):
   `convex/offgrid.ts` is the member API (`declare` — future-dated only,
-  `cancel`, `mine`, `forClub`, `viewerStatus`). Declaring bills nothing; the
+  `update` — start is fixed once a period is under way, `cancel`, `mine`,
+  `forClub`, `viewerStatus`); the Club tab drives it. Declaring bills nothing; the
   hourly rollover settles each day away as ⛈ (1 cloud) instead of missed (2),
   so a member who turns out to have signal can still report a ⭐ and beat their
   own commitment. `clubs:home` exposes `offGrid` per member.
