@@ -6,6 +6,7 @@ import {
   createElement,
   useContext,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Alert } from "react-native";
@@ -116,7 +117,19 @@ export function useSettings(): NotificationSettings | undefined {
  * is a live subscription; "load older" pins additional windows by their
  * `through` cursor (also live, but their contents are historical). Windows
  * are concatenated oldest→newest, matching the backend's in-window order.
+ *
+ * The live window knows nothing about "today" — it runs open-ended off the
+ * end of the data, so anything newly written is already inside it. The one
+ * thing it needs from us is its floor, pinned the moment we page below it so
+ * that a day can't slip into the gap between the two.
  */
+type FeedWindow = {
+  events: FeedEvent[];
+  hasMore: boolean;
+  nextThrough: string;
+  window: { from: string; through: string | null };
+};
+
 export function useFeed(): {
   events: FeedEvent[] | undefined;
   hasMore: boolean;
@@ -125,19 +138,29 @@ export function useFeed(): {
 } {
   const clubId = useClubId();
   const [cursors, setCursors] = useState<string[]>([]);
+  const [liveFrom, setLiveFrom] = useState<string | null>(null);
 
   const queries = useMemo(() => {
     const q: Record<
       string,
-      { query: typeof api.feed.forClub; args: { clubId: Id<"clubs">; through?: string } }
-    > = { w0: { query: api.feed.forClub, args: { clubId } } };
+      {
+        query: typeof api.feed.forClub;
+        args: { clubId: Id<"clubs">; through?: string; from?: string };
+      }
+    > = {
+      w0: {
+        query: api.feed.forClub,
+        args: liveFrom === null ? { clubId } : { clubId, from: liveFrom },
+      },
+    };
     cursors.forEach((through, i) => {
       q[`w${i + 1}`] = { query: api.feed.forClub, args: { clubId, through } };
     });
     return q;
-  }, [clubId, cursors]);
+  }, [clubId, cursors, liveFrom]);
 
   const results = useQueries(queries);
+  const held = useRef<{ events: FeedEvent[]; hasMore: boolean } | null>(null);
 
   return useMemo(() => {
     // Collect loaded windows newest→oldest, stopping at the first one still
@@ -145,16 +168,18 @@ export function useFeed(): {
     // everything already on screen keeps rendering — `events` must never
     // revert to undefined mid-scroll, or the list unmounts and an inverted
     // FlatList remounts at the bottom.
-    const windows = [];
+    const windows: FeedWindow[] = [];
     let loadingOlder = false;
     for (let i = 0; i <= cursors.length; i++) {
       const w = results[`w${i}`];
       if (w === undefined || w instanceof Error) {
         if (i === 0) {
-          // Nothing loaded yet: the true initial-load state.
+          // Initial load — or the live window re-keying as its floor is
+          // pinned. Keep showing the last good result through the gap: going
+          // back to undefined unmounts the list and springs it to the bottom.
           return {
-            events: undefined,
-            hasMore: false,
+            events: held.current?.events,
+            hasMore: held.current?.hasMore ?? false,
             loadingOlder: false,
             loadOlder: () => {},
           };
@@ -162,28 +187,37 @@ export function useFeed(): {
         loadingOlder = true;
         break;
       }
-      windows.push(w);
+      windows.push(w as FeedWindow);
     }
     const oldest = windows[windows.length - 1];
+    // Oldest window's events first, newest last.
+    const events = windows
+      .slice()
+      .reverse()
+      .flatMap((w) => w.events);
+    const hasMore = oldest.hasMore;
+    held.current = { events, hasMore };
     return {
-      // Oldest window's events first, newest last.
-      events: windows
-        .slice()
-        .reverse()
-        .flatMap((w) => w.events as FeedEvent[]),
-      hasMore: oldest.hasMore as boolean,
+      events,
+      hasMore,
       loadingOlder,
       // One window in flight at a time; onEndReached can fire repeatedly.
       loadOlder: loadingOlder
         ? () => {}
         : () => {
-            const next = oldest.nextThrough as string;
+            // Freeze the live window's floor on the way down. Until now it
+            // was free to move as the club's newest day advanced; from here
+            // on, something is pinned directly beneath it.
+            if (liveFrom === null) {
+              setLiveFrom(windows[0].window.from);
+            }
+            const next = oldest.nextThrough;
             setCursors((prev) =>
               prev.includes(next) ? prev : [...prev, next],
             );
           },
     };
-  }, [results, cursors]);
+  }, [results, cursors, liveFrom]);
 }
 
 // ---------------------------------------------------------------------------

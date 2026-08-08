@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { QueryCtx, query } from "./_generated/server";
 import { clubRecipientIds, requireMembership } from "./lib/access";
-import { addDays, todayInTz } from "./lib/days";
+import { addDays } from "./lib/days";
 
 /**
  * The club's life as a chat-style timeline, composed on the fly from the
@@ -14,12 +14,82 @@ import { addDays, todayInTz } from "./lib/days";
  * into the timeline; unattached chat would become one more source merged in
  * here.
  *
- * Paging is by calendar-day windows: each call returns every event in
- * [from, through] plus `nextThrough` to request the older window.
+ * Paging is by calendar-day windows, anchored on the data rather than on the
+ * clock. The live window has a floor and no ceiling, so a newer entry appears
+ * by *being* newer — there is no "today" to go stale, and no cached result
+ * that a midnight can invalidate. Every event carries the `day` it belongs
+ * to; naming that day "today" or "yesterday" is the client's job, since the
+ * client is the one holding a live clock.
+ *
+ * Older pages are closed windows: each returns every event in [from, through]
+ * plus `nextThrough` to request the one below it.
  */
 
 const DEFAULT_WINDOW_DAYS = 14;
 const MAX_WINDOW_DAYS = 60;
+
+/**
+ * The live window has no upper edge. Day strings compare lexicographically,
+ * so a sentinel past every real day keeps the four range scans uniform while
+ * meaning "and everything after".
+ */
+const OPEN_ENDED = "9999-12-31";
+
+/**
+ * The newest day the club has anything on, for placing the live window's
+ * floor on first load. Deliberately cheap: one descending index probe per
+ * source, and no section reads (submissions have no day index — the day
+ * lives inside `sections.submission`).
+ *
+ * It's allowed to be a day or two behind because it only sets how far *back*
+ * the first window reaches, which is cosmetic. Nothing can be missed off the
+ * top: the live window is open-ended, so anything newer is in range whatever
+ * this returns.
+ */
+async function newestDayWithData(
+  ctx: QueryCtx,
+  clubId: Id<"clubs">,
+  memberIds: Id<"users">[],
+  books: Doc<"books">[],
+): Promise<string | null> {
+  let newest: string | null = null;
+  const consider = (day: string | undefined) => {
+    if (day !== undefined && (newest === null || day > newest)) {
+      newest = day;
+    }
+  };
+  for (const memberId of memberIds) {
+    const latest = await ctx.db
+      .query("checkins")
+      .withIndex("userDay", (q) => q.eq("userId", memberId))
+      .order("desc")
+      .first();
+    consider(latest?.day);
+  }
+  consider(
+    (
+      await ctx.db
+        .query("replies")
+        .withIndex("clubDay", (q) => q.eq("clubId", clubId))
+        .order("desc")
+        .first()
+    )?.day,
+  );
+  consider(
+    (
+      await ctx.db
+        .query("summaries")
+        .withIndex("clubWeek", (q) => q.eq("clubId", clubId))
+        .order("desc")
+        .first()
+    )?.weekEndingDay,
+  );
+  for (const book of books) {
+    consider(book.startedDay);
+    consider(book.endedDay);
+  }
+  return newest;
+}
 
 export type FeedReply = {
   replyId: Id<"replies">;
@@ -117,9 +187,15 @@ async function nameOf(
 export const forClub = query({
   args: {
     clubId: v.id("clubs"),
-    // Newest day (inclusive) of the window; omit for "now". Pass the
-    // previous response's `nextThrough` to page older.
+    // A historical page: the newest day it covers. Omit for the live window,
+    // which runs open-ended off the end. Pass the previous response's
+    // `nextThrough` to page older.
     through: v.optional(v.string()),
+    // Pins the live window's oldest day. The client sends back the `from` it
+    // was given the moment it pages older, so the live window can only grow
+    // upward from there — if its floor slid forward instead, the day it
+    // vacated would fall into a hole between it and the pinned page below.
+    from: v.optional(v.string()),
     days: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -128,18 +204,45 @@ export const forClub = query({
       Math.max(Math.floor(args.days ?? DEFAULT_WINDOW_DAYS), 1),
       MAX_WINDOW_DAYS,
     );
-    // Members east of the viewer can already be on "tomorrow".
-    const through = args.through ?? addDays(todayInTz(viewer.timezone), 1);
-    const from = addDays(through, -(windowDays - 1));
+
+    // Ghosts included: an ex-member's historical check-ins stay in the feed.
+    const memberIds = await clubRecipientIds(ctx, args.clubId);
+    // A club accrues a few dozen books over the years; scanning them is cheap
+    // and only books overlapping the window pay for a sections read.
+    const books: Doc<"books">[] = [];
+    for (const status of ["active", "finished", "abandoned"] as const) {
+      books.push(
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
+        ...(await ctx.db
+          .query("books")
+          .withIndex("clubStatus", (q) =>
+            q.eq("clubId", args.clubId).eq("status", status),
+          )
+          .collect()),
+      );
+    }
+
+    // The window is anchored on the data, never on the clock — a newer entry
+    // shows up by *being* newer, and the client decides what to call each day
+    // from the `day` every event carries. The live window therefore runs
+    // open-ended: anything written after this query last ran is inside it.
+    const through = args.through ?? OPEN_ENDED;
+    const anchor =
+      args.through ??
+      (await newestDayWithData(ctx, args.clubId, memberIds, books)) ??
+      // A club with nothing in it: any floor yields an empty window.
+      books.reduce<string>(
+        (oldest, b) => (b.startedDay < oldest ? b.startedDay : oldest),
+        "1970-01-01",
+      );
+    const from = args.from ?? addDays(anchor, -(windowDays - 1));
 
     const names = new Map<Id<"users">, string>();
     const events: FeedEvent[] = [];
 
     // --- Check-ins: one indexed range scan per member ----------------------
-    // Ghosts included: an ex-member's historical check-ins stay in the feed.
-    const memberIds = await clubRecipientIds(ctx, args.clubId);
     for (const memberId of memberIds) {
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed from the window floor; the live window grows a row per member per day
       const checkins = await ctx.db
         .query("checkins")
         .withIndex("userDay", (q) =>
@@ -163,7 +266,7 @@ export const forClub = query({
     // else: nested under its write-up when that lands in the same window,
     // standalone (naming the write-up) when the talk outlived it. Either
     // way it appears exactly once across the windows.
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed from the window floor; the live window grows a row per member per day
     const replyRows = await ctx.db
       .query("replies")
       .withIndex("clubDay", (q) =>
@@ -188,20 +291,6 @@ export const forClub = query({
     }
 
     // --- Books: starts, ends, and submissions in the window ----------------
-    // A club accrues a few dozen books over the years; scanning them is cheap
-    // and only books overlapping the window pay for a sections read.
-    const books: Doc<"books">[] = [];
-    for (const status of ["active", "finished", "abandoned"] as const) {
-      books.push(
-        // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
-        ...(await ctx.db
-          .query("books")
-          .withIndex("clubStatus", (q) =>
-            q.eq("clubId", args.clubId).eq("status", status),
-          )
-          .collect()),
-      );
-    }
     for (const book of books) {
       if (book.startedDay >= from && book.startedDay <= through) {
         events.push({
@@ -347,7 +436,9 @@ export const forClub = query({
     return {
       events,
       viewerId: viewer._id,
-      window: { from, through },
+      // `through: null` = the live window, open-ended off the end. Send `from`
+      // back as this query's `from` when you page older, to pin it.
+      window: { from, through: args.through ?? null },
       nextThrough: addDays(from, -1),
       // History runs out once the window predates the club's first book.
       hasMore: oldestBookDay !== null && from > oldestBookDay,
