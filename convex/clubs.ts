@@ -8,7 +8,7 @@ import {
   requireUser,
 } from "./lib/access";
 import { cloudsForUser } from "./lib/clouds";
-import { isPushupDay, readerDay, todayInTz, viewerDay } from "./lib/days";
+import { addDays, isPushupDay, readerDay, todayInTz, viewerDay } from "./lib/days";
 import { offGridOn } from "./lib/offgrid";
 
 function generateInviteCode(): string {
@@ -177,10 +177,24 @@ export const home = query({
         // from their own timezone, since that's what their deadline runs on.
         const today =
           userId === viewer._id ? viewerToday : todayInTz(user.timezone);
-        const checkin = await ctx.db
+        // Read the day either side too, and not just as a courtesy: an exact
+        // -key read would put *only* `today` in this query's read set, so a
+        // clubmate east of the reader — who crosses midnight first — could
+        // log a ⭐️ on their new day and invalidate nothing. It would stay
+        // invisible here until the reader's own day turned over, hours later.
+        // The range keeps the neighbouring days in the read set, so the write
+        // lands inside it and the query re-runs against a fresh clock.
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- three days of one member's check-ins
+        const nearby = await ctx.db
           .query("checkins")
-          .withIndex("userDay", (q) => q.eq("userId", userId).eq("day", today))
-          .unique();
+          .withIndex("userDay", (q) =>
+            q
+              .eq("userId", userId)
+              .gte("day", addDays(today, -1))
+              .lte("day", addDays(today, 1)),
+          )
+          .collect();
+        const checkin = nearby.find((c) => c.day === today) ?? null;
         const bookClouds = activeBook
           ? await cloudsForUser(ctx, userId, args.clubId, activeBook.startedDay)
           : 0;
