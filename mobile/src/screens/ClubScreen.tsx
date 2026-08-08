@@ -17,11 +17,20 @@ import {
   useHome,
   useInvites,
   useMe,
+  useMyAbsences,
   useSettings,
+  useToday,
 } from "../data";
-import { statusGlyph } from "../lib";
+import {
+  addDays,
+  diffDays,
+  prettyDay,
+  pushupDaysBetween,
+  statusGlyph,
+} from "../lib";
 import { registerForPushNotifications } from "../notifications";
 import { colors, radius, serif, space } from "../theme";
+import type { OffGridPeriod } from "../types";
 import { Avatar, Btn, Muted, Pill } from "../ui";
 
 /** Members, profile, invites, notification settings, sign out. */
@@ -35,6 +44,7 @@ export function ClubScreen() {
     >
       <Members />
       <Profile />
+      {!isGhost && <OffGrid />}
       <Notifications isGhost={isGhost} />
       <InvitesSection />
       <Feedback />
@@ -66,7 +76,11 @@ function Members() {
               {m.name}
               {m._id === home.viewerId ? "  (you)" : ""}
             </Text>
-            <Muted>{m.timezone ?? "timezone unknown"}</Muted>
+            <Muted>
+              {m.offGrid
+                ? `⛈️ off the grid until ${prettyDay(m.offGrid.toDay)}`
+                : (m.timezone ?? "timezone unknown")}
+            </Muted>
           </View>
           <Text style={styles.rowGlyph}>
             {!m.isPushupDay
@@ -177,6 +191,244 @@ function Profile() {
       <Muted style={{ marginTop: space(1) }}>
         Somewhere else? Set any timezone on the web app.
       </Muted>
+    </View>
+  );
+}
+
+/** How far ahead the start-day chips reach; the stepper covers the rest. */
+const START_CHOICES = 14;
+const MAX_AWAY_DAYS = 90; // matches MAX_OFF_GRID_DAYS on the backend
+
+function rangeLabel(fromDay: string, toDay: string): string {
+  return fromDay === toDay
+    ? prettyDay(fromDay)
+    : `${prettyDay(fromDay)} → ${prettyDay(toDay)}`;
+}
+
+/**
+ * Declare, reschedule, and call off your own absences. No date picker: that
+ * would be a native module, and a native module can't ride an OTA update out
+ * to the club. Chips for the start, a stepper for the length.
+ */
+function OffGrid() {
+  const today = useToday();
+  const periods = useMyAbsences();
+  const { declareAbsence, updateAbsence, cancelAbsence } = useActions();
+  // A period id while editing that one, "new" while declaring, else null.
+  const [editing, setEditing] = useState<string | null>(null);
+
+  const confirmCancel = (period: OffGridPeriod) => {
+    Alert.alert(
+      period.active ? "Back early?" : "Drop this absence?",
+      period.active
+        ? "It'll end yesterday, so today counts normally again. The days you were away keep the ⛈️ they were billed."
+        : rangeLabel(period.fromDay, period.toDay),
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: period.active ? "I'm back" : "Drop it",
+          style: "destructive",
+          onPress: () => void cancelAbsence(period._id),
+        },
+      ],
+    );
+  };
+
+  return (
+    <View>
+      <Text style={styles.heading}>Off the grid</Text>
+      <Muted>
+        Heading somewhere without service? Say so before you go and each day
+        away costs one ⛈️ instead of the 2 clouds silence costs — and if you
+        find a bar of signal, a ⭐️ still beats it. Reading deadlines don't
+        move.
+      </Muted>
+
+      {periods?.map((p) =>
+        editing === p._id ? (
+          <AbsenceEditor
+            key={p._id}
+            today={today}
+            initial={p}
+            // An absence under way has been reckoned day by day already;
+            // only its end is still in play.
+            lockStart={p.active}
+            saveLabel="Save"
+            onCancel={() => setEditing(null)}
+            onSave={async (values) => {
+              const ok = await updateAbsence({
+                periodId: p._id,
+                fromDay: values.fromDay,
+                toDay: values.toDay,
+                note: values.note.trim() || null,
+              });
+              if (ok) {
+                setEditing(null);
+              }
+            }}
+          />
+        ) : (
+          <View key={p._id} style={styles.absenceRow}>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowName}>
+                {rangeLabel(p.fromDay, p.toDay)}
+              </Text>
+              {p.note ? <Muted>{p.note}</Muted> : null}
+            </View>
+            {p.active ? <Pill tone="warn">Away now</Pill> : null}
+            <Pressable onPress={() => setEditing(p._id)} hitSlop={8}>
+              <Text style={styles.saveLink}>Edit</Text>
+            </Pressable>
+            <Pressable onPress={() => confirmCancel(p)} hitSlop={8}>
+              <Text style={styles.dangerLink}>
+                {p.active ? "I'm back" : "Drop"}
+              </Text>
+            </Pressable>
+          </View>
+        ),
+      )}
+
+      {editing === "new" ? (
+        <AbsenceEditor
+          today={today}
+          initial={{ fromDay: today, toDay: today, note: null }}
+          saveLabel="Declare"
+          onCancel={() => setEditing(null)}
+          onSave={async (values) => {
+            const ok = await declareAbsence({
+              fromDay: values.fromDay,
+              toDay: values.toDay,
+              note: values.note.trim() || undefined,
+            });
+            if (ok) {
+              setEditing(null);
+            }
+          }}
+        />
+      ) : editing === null ? (
+        <Btn
+          variant="ghost"
+          onPress={() => setEditing("new")}
+          style={{ marginTop: space(3) }}
+        >
+          {periods?.length ? "➕ Another absence" : "➕ Declare an absence"}
+        </Btn>
+      ) : null}
+    </View>
+  );
+}
+
+function AbsenceEditor(props: {
+  today: string;
+  initial: { fromDay: string; toDay: string; note: string | null };
+  lockStart?: boolean;
+  saveLabel: string;
+  onSave: (values: { fromDay: string; toDay: string; note: string }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [fromDay, setFromDay] = useState(props.initial.fromDay);
+  const [toDay, setToDay] = useState(props.initial.toDay);
+  const [note, setNote] = useState(props.initial.note ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const days = diffDays(toDay, fromDay) + 1;
+  const charged = pushupDaysBetween(fromDay, toDay);
+  const starts = Array.from({ length: START_CHOICES }, (_, i) =>
+    addDays(props.today, i),
+  );
+
+  const pickStart = (day: string) => {
+    setFromDay(day);
+    // A start dragged past the end takes the end with it.
+    if (day > toDay) {
+      setToDay(day);
+    }
+  };
+
+  const stretch = (n: number) => {
+    const next = addDays(toDay, n);
+    if (next >= fromDay && diffDays(next, fromDay) + 1 <= MAX_AWAY_DAYS) {
+      setToDay(next);
+    }
+  };
+
+  return (
+    <View style={styles.editor}>
+      {props.lockStart ? (
+        <Muted>Away since {prettyDay(fromDay)} — you can move the end.</Muted>
+      ) : (
+        <>
+          <Text style={styles.editorLabel}>First day away</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.startRow}
+          >
+            {starts.map((day, i) => (
+              <Chip
+                key={day}
+                label={
+                  i === 0 ? "Today" : i === 1 ? "Tomorrow" : prettyDay(day)
+                }
+                selected={fromDay === day}
+                onPress={() => pickStart(day)}
+              />
+            ))}
+          </ScrollView>
+        </>
+      )}
+
+      <Text style={styles.editorLabel}>How long</Text>
+      <View style={styles.stepperRow}>
+        <Pressable
+          onPress={() => stretch(-1)}
+          style={styles.stepBtn}
+          hitSlop={6}
+        >
+          <Text style={styles.stepGlyph}>−</Text>
+        </Pressable>
+        <Text style={styles.stepValue}>
+          {days} {days === 1 ? "day" : "days"}
+        </Text>
+        <Pressable
+          onPress={() => stretch(1)}
+          style={styles.stepBtn}
+          hitSlop={6}
+        >
+          <Text style={styles.stepGlyph}>+</Text>
+        </Pressable>
+      </View>
+      <Muted>
+        {rangeLabel(fromDay, toDay)} — {charged} ⛈️ instead of the {charged * 2}{" "}
+        clouds silence would cost
+        {charged < days ? " (Sundays are free)" : ""}.
+      </Muted>
+
+      <TextInput
+        style={styles.noteInput}
+        value={note}
+        onChangeText={setNote}
+        placeholder="Note (optional) — e.g. no signal"
+        placeholderTextColor={colors.inkFaint}
+      />
+
+      <View style={styles.editorActions}>
+        <Btn variant="ghost" onPress={props.onCancel} style={{ flex: 1 }}>
+          Cancel
+        </Btn>
+        <Btn
+          onPress={() => {
+            setSaving(true);
+            void props
+              .onSave({ fromDay, toDay, note })
+              .finally(() => setSaving(false));
+          }}
+          disabled={saving}
+          style={{ flex: 1 }}
+        >
+          {saving ? "Saving…" : props.saveLabel}
+        </Btn>
+      </View>
     </View>
   );
 }
@@ -493,6 +745,70 @@ const styles = StyleSheet.create({
     gap: space(2),
     marginTop: space(2.5),
   },
+  absenceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(3),
+    paddingVertical: space(2.5),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.line,
+  },
+  editor: {
+    marginTop: space(3),
+    padding: space(3),
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.line,
+    backgroundColor: colors.paper,
+    gap: space(2),
+  },
+  editorLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.inkFaint,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: space(1),
+  },
+  startRow: { flexDirection: "row", gap: space(2), paddingVertical: space(1) },
+  stepperRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(4),
+  },
+  stepBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.stormSoft,
+  },
+  stepGlyph: { fontSize: 20, fontWeight: "700", color: colors.ink },
+  stepValue: {
+    fontFamily: serif,
+    fontSize: 17,
+    color: colors.ink,
+    minWidth: 72,
+    textAlign: "center",
+  },
+  noteInput: {
+    marginTop: space(1),
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    paddingHorizontal: space(3),
+    paddingVertical: space(2.5),
+    fontSize: 15,
+    color: colors.ink,
+    backgroundColor: colors.card,
+  },
+  editorActions: {
+    flexDirection: "row",
+    gap: space(3),
+    marginTop: space(1),
+  },
+  dangerLink: { fontSize: 14, fontWeight: "600", color: colors.accent },
   chip: {
     borderRadius: radius.full,
     paddingHorizontal: space(3.5),

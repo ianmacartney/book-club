@@ -21,6 +21,7 @@ import type {
   Invite,
   Me,
   NotificationSettings,
+  OffGridPeriod,
   ShelfBook,
 } from "./types";
 
@@ -167,6 +168,11 @@ export function useSettings(): NotificationSettings | undefined {
   return useQuery(api.notifications.mySettings);
 }
 
+/** The viewer's own current and upcoming absences, soonest first. */
+export function useMyAbsences(): OffGridPeriod[] | undefined {
+  return useQuery(api.offgrid.mine, { viewerDay: useToday() });
+}
+
 /**
  * The feed pages backwards through calendar-day windows: the newest window
  * is a live subscription; "load older" pins additional windows by their
@@ -295,6 +301,18 @@ export function useActions(): {
   }) => Promise<boolean>;
   createInvite: (forName?: string) => Promise<string | null>;
   submitFeedback: (message: string) => Promise<boolean>;
+  declareAbsence: (args: {
+    fromDay: string;
+    toDay: string;
+    note?: string;
+  }) => Promise<boolean>;
+  updateAbsence: (args: {
+    periodId: string;
+    fromDay?: string;
+    toDay?: string;
+    note?: string | null;
+  }) => Promise<boolean>;
+  cancelAbsence: (periodId: string) => Promise<boolean>;
 } {
   const checkIn = useMutation(api.pushups.submit);
   const submitSection = useMutation(api.books.submitSection);
@@ -304,6 +322,9 @@ export function useActions(): {
   const updateProfile = useMutation(api.users.updateProfile);
   const createInvite = useMutation(api.clubs.createInvite);
   const submitFeedback = useMutation(api.feedback.submit);
+  const declareAbsence = useMutation(api.offgrid.declare);
+  const updateAbsence = useMutation(api.offgrid.update);
+  const cancelAbsence = useMutation(api.offgrid.cancel);
   const clubId = useClubId();
   return {
     checkIn: (status) => {
@@ -353,6 +374,39 @@ export function useActions(): {
     submitFeedback: async (message) => {
       try {
         await submitFeedback({ message, clubId });
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
+    },
+    // The three absence writes report success so the editor can stay open on
+    // a rejection — the club's rules (overlaps, a start in the past) come
+    // back as messages worth reading, not states worth guessing at.
+    declareAbsence: async (args) => {
+      try {
+        await declareAbsence(args);
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
+    },
+    updateAbsence: async ({ periodId, ...rest }) => {
+      try {
+        await updateAbsence({
+          periodId: periodId as Id<"offGridPeriods">,
+          ...rest,
+        });
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
+    },
+    cancelAbsence: async (periodId) => {
+      try {
+        await cancelAbsence({ periodId: periodId as Id<"offGridPeriods"> });
         return true;
       } catch (err) {
         alertError(err);

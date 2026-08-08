@@ -16,6 +16,18 @@ export type Member = {
   isPushupDay: boolean;
   checkinToday: CheckinStatus | null;
   bookClouds: number;
+  // Set while they're away under a declared absence — silence costs them a
+  // ⛈️ today, not 2 clouds.
+  offGrid: { toDay: string; note: string | null } | null;
+};
+
+/** A declared absence of the viewer's own (convex/offgrid.ts `mine`). */
+export type OffGridPeriod = {
+  _id: string;
+  fromDay: string; // inclusive, in the member's timezone
+  toDay: string; // inclusive
+  note: string | null;
+  active: boolean; // today falls inside it
 };
 
 export type Home = {
