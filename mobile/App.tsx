@@ -15,7 +15,7 @@ import {
 } from "react-native-safe-area-context";
 import { api } from "../convex/_generated/api";
 import { convex, deviceTimezone, secureStorage } from "./src/convex";
-import { ClubProvider } from "./src/data";
+import { ClubProvider, useToday } from "./src/data";
 import { currentPushTokenIfPermitted } from "./src/notifications";
 import { AuthScreen } from "./src/screens/AuthScreen";
 import { BookScreen } from "./src/screens/BookScreen";
@@ -61,7 +61,7 @@ function Splash() {
 }
 
 function SignedIn() {
-  const me = useQuery(api.users.me);
+  const me = useQuery(api.users.me, { viewerDay: useToday() });
   const clubs = useQuery(api.clubs.mine);
   const ensureTimezone = useMutation(api.users.ensureTimezone);
   const registerPushToken = useMutation(api.notifications.registerPushToken);

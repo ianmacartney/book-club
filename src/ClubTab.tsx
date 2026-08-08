@@ -4,7 +4,12 @@ import { useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { Home } from "./ClubView";
-import { browserTimezone, errorMessage, timezoneOptions } from "./lib";
+import {
+  browserTimezone,
+  errorMessage,
+  timezoneOptions,
+  useToday,
+} from "./lib";
 import { Button, Card, ErrorNote, Field, inputClass } from "./ui";
 
 export function ClubTab(props: { clubId: Id<"clubs">; home: Home }) {
@@ -114,7 +119,7 @@ function Invites(props: { clubId: Id<"clubs"> }) {
 }
 
 function Profile() {
-  const me = useQuery(api.users.me);
+  const me = useQuery(api.users.me, { viewerDay: useToday() });
   const update = useMutation(api.users.updateProfile);
   const [name, setName] = useState<string | null>(null);
   const [timezone, setTimezone] = useState<string | null>(null);

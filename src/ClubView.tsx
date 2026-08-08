@@ -7,7 +7,7 @@ import { BookTab } from "./BookTab";
 import { ClubTab } from "./ClubTab";
 import { LibraryTab } from "./LibraryTab";
 import { StandingsTab } from "./StandingsTab";
-import { errorMessage, prettyDay } from "./lib";
+import { errorMessage, prettyDay, useToday } from "./lib";
 import { Button, Card, ErrorNote, Pill } from "./ui";
 
 type Tab = "today" | "book" | "library" | "standings" | "club";
@@ -25,7 +25,10 @@ export function ClubView(props: {
   clubs: { _id: Id<"clubs">; name: string }[];
   onSwitchClub: (id: Id<"clubs">) => void;
 }) {
-  const home = useQuery(api.clubs.home, { clubId: props.clubId });
+  const home = useQuery(api.clubs.home, {
+    clubId: props.clubId,
+    viewerDay: useToday(),
+  });
   const [tab, setTab] = useState<Tab>("today");
 
   if (home === undefined) {
@@ -81,7 +84,7 @@ export type Home = FunctionReturnType<typeof api.clubs.home>;
 function TodayTab(props: { home: Home }) {
   const { home } = props;
   const submit = useMutation(api.pushups.submit);
-  const history = useQuery(api.pushups.history, {});
+  const history = useQuery(api.pushups.history, { viewerDay: useToday() });
   const [error, setError] = useState<string | null>(null);
   const viewer = home.members.find((m) => m._id === home.viewerId);
 

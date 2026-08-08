@@ -8,7 +8,7 @@ import {
   requireUser,
 } from "./lib/access";
 import { accrueLateClouds, tallyClouds } from "./lib/clouds";
-import { addDays, diffDays, todayInTz } from "./lib/days";
+import { addDays, diffDays, todayInTz, viewerDay } from "./lib/days";
 import {
   notifyBookFinished,
   notifySectionSubmitted,
@@ -293,7 +293,8 @@ export const abandon = mutation({
 
 /** Full detail for the book page: sections, submissions, standings. */
 export const detail = query({
-  args: { bookId: v.id("books") },
+  // `daysLate` on the current section ticks over at the assignee's midnight.
+  args: { bookId: v.id("books"), viewerDay },
   handler: async (ctx, args) => {
     const book = await ctx.db.get("books", args.bookId);
     if (book === null) {

@@ -10,7 +10,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { AuthScreen } from "./AuthScreen";
 import { ClubView } from "./ClubView";
 import { Onboarding } from "./Onboarding";
-import { browserTimezone } from "./lib";
+import { browserTimezone, useToday } from "./lib";
 
 export function App() {
   return (
@@ -29,7 +29,7 @@ export function App() {
 }
 
 function SignedIn() {
-  const me = useQuery(api.users.me);
+  const me = useQuery(api.users.me, { viewerDay: useToday() });
   const clubs = useQuery(api.clubs.mine);
   const ensureTimezone = useMutation(api.users.ensureTimezone);
   const [clubId, setClubId] = useState<Id<"clubs"> | null>(

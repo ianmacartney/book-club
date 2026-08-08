@@ -5,11 +5,12 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { Alert } from "react-native";
+import { Alert, AppState } from "react-native";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import type {
@@ -50,6 +51,57 @@ function useClubId(): Id<"clubs"> {
   return clubId;
 }
 
+/** The device's calendar day as yyyy-MM-dd, without leaning on Intl. */
+function localDay(): string {
+  const d = new Date();
+  const month = `${d.getMonth() + 1}`.padStart(2, "0");
+  const day = `${d.getDate()}`.padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * The reader's local day, re-rendering when it changes. Queries that reckon
+ * "today" pass this so they re-run at midnight instead of serving a result
+ * cached yesterday (see `viewerDay` in convex/lib/days.ts) — without it, a
+ * ⭐️ logged at 00:01 writes to a day the cached query never read, and the
+ * screen doesn't budge.
+ */
+export function useToday(): string {
+  const [day, setDay] = useState(localDay);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setDay(localDay());
+      const now = new Date();
+      // A hair past midnight, so a timer firing early can't land on the same
+      // day and spin.
+      const next = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+        0,
+        0,
+        2,
+      );
+      clearTimeout(timer);
+      timer = setTimeout(tick, next.getTime() - now.getTime());
+    };
+    tick();
+    // Timers don't fire dependably while the app is backgrounded, which is
+    // how a phone usually crosses midnight — so re-check on the way back in.
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        tick();
+      }
+    });
+    return () => {
+      clearTimeout(timer);
+      sub.remove();
+    };
+  }, []);
+  return day;
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ConvexError && typeof err.data === "string") {
     return err.data;
@@ -67,11 +119,11 @@ function alertError(err: unknown): void {
 
 export function useHome(): Home | undefined {
   const clubId = useClubId();
-  return useQuery(api.clubs.home, { clubId });
+  return useQuery(api.clubs.home, { clubId, viewerDay: useToday() });
 }
 
 export function useMe(): Me | null | undefined {
-  return useQuery(api.users.me);
+  return useQuery(api.users.me, { viewerDay: useToday() });
 }
 
 /**
@@ -83,9 +135,12 @@ export function useBook(bookId?: string): BookDetail | null | undefined {
   const home = useHome();
   const activeBookId = home?.activeBookId ?? null;
   const targetId = bookId ?? activeBookId;
+  const viewerDay = useToday();
   const detail = useQuery(
     api.books.detail,
-    targetId !== null ? { bookId: targetId as Id<"books"> } : "skip",
+    targetId !== null
+      ? { bookId: targetId as Id<"books">, viewerDay }
+      : "skip",
   );
   // Browsing a specific book: home is irrelevant, just reflect the query.
   if (bookId !== undefined) {

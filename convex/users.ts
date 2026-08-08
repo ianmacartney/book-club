@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { currentUserId, requireUser } from "./lib/access";
-import { isValidTimezone, todayInTz } from "./lib/days";
+import { isValidTimezone, readerDay, viewerDay } from "./lib/days";
 
 /**
  * Called by Convex Auth whenever an account signs up or in.
@@ -64,8 +64,9 @@ export const createOrUpdateUser = internalMutation({
 });
 
 export const me = query({
-  args: {},
-  handler: async (ctx) => {
+  // Returns `today`, so it needs the reader's day to stay current.
+  args: { viewerDay },
+  handler: async (ctx, args) => {
     const userId = await currentUserId(ctx);
     if (userId === null) {
       return null;
@@ -79,7 +80,7 @@ export const me = query({
       username: user.username,
       name: user.name ?? user.username,
       timezone: user.timezone ?? null,
-      today: todayInTz(user.timezone),
+      today: readerDay(args.viewerDay, user.timezone),
     };
   },
 });

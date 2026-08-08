@@ -8,7 +8,7 @@ import {
   requireUser,
 } from "./lib/access";
 import { cloudsForUser } from "./lib/clouds";
-import { isPushupDay, todayInTz } from "./lib/days";
+import { isPushupDay, readerDay, todayInTz, viewerDay } from "./lib/days";
 import { offGridOn } from "./lib/offgrid";
 
 function generateInviteCode(): string {
@@ -145,9 +145,13 @@ export const openInvites = query({
  * is one.
  */
 export const home = query({
-  args: { clubId: v.id("clubs") },
+  // Every member's `today`, `isPushupDay`, `checkinToday` and off-grid state
+  // is reckoned from the clock — see `viewerDay` in lib/days for why the
+  // reader's own day has to come in as an argument.
+  args: { clubId: v.id("clubs"), viewerDay },
   handler: async (ctx, args) => {
     const viewer = await requireMembership(ctx, args.clubId);
+    const viewerToday = readerDay(args.viewerDay, viewer.timezone);
     const club = await ctx.db.get("clubs", args.clubId);
     if (club === null) {
       throw new ConvexError("Club not found.");
@@ -169,7 +173,10 @@ export const home = query({
         if (user === null) {
           return null;
         }
-        const today = todayInTz(user.timezone);
+        // The reader's own day is theirs to declare; everyone else's comes
+        // from their own timezone, since that's what their deadline runs on.
+        const today =
+          userId === viewer._id ? viewerToday : todayInTz(user.timezone);
         const checkin = await ctx.db
           .query("checkins")
           .withIndex("userDay", (q) => q.eq("userId", userId).eq("day", today))

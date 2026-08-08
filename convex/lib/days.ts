@@ -1,3 +1,5 @@
+import { ConvexError, v } from "convex/values";
+
 /**
  * All deadlines in the club are "calendar days in your own timezone".
  * Days are represented as yyyy-MM-dd strings; arithmetic on them is
@@ -6,6 +8,46 @@
  */
 
 export const DEFAULT_TIMEZONE = "America/Los_Angeles";
+
+/**
+ * A query that asks the clock what day it is isn't reactive to the clock.
+ * Convex recomputes a query when its *read set* changes, and midnight writes
+ * nothing — so a session opened at 23:59 keeps serving yesterday. Check in
+ * after midnight and the new row lands on a day the cached query never read:
+ * nothing invalidates, and the screen sits there looking broken.
+ *
+ * Readers therefore pass their own local day, and it is **authoritative** for
+ * their day (see `readerDay`). Deriving it from the clock instead and using
+ * the argument only to re-key the subscription would leave a worse hole: a
+ * client whose clock is a second ahead of the backend's re-keys to tomorrow
+ * while the handler still computes today, and the result caches under a day
+ * it isn't for. Nothing would ever recompute it — the client keeps sending
+ * that same key — so the staleness would last the whole day instead of a
+ * moment. Taking the argument as given makes the result a pure function of
+ * the arguments again, which is the property Convex's cache assumes.
+ *
+ * A wrong device clock can only mislead the reader's own display: every
+ * mutation still reckons days server-side from the member's stored timezone,
+ * so nothing here can move a deadline or a cloud.
+ */
+export const viewerDay = v.optional(v.string());
+
+/**
+ * The reader's own calendar day: the day they told us, or the clock when
+ * they didn't (the CLI, crons, and any client predating the argument).
+ */
+export function readerDay(
+  claimed: string | undefined,
+  timezone: string | undefined,
+): string {
+  if (claimed === undefined) {
+    return todayInTz(timezone);
+  }
+  if (!isValidDay(claimed)) {
+    throw new ConvexError(`Not a calendar day: ${claimed}`);
+  }
+  return claimed;
+}
 
 export function dayInTz(ts: number, timezone: string | undefined): string {
   // en-CA formats as yyyy-MM-dd.

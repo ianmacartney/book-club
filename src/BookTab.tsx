@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { Home } from "./ClubView";
-import { errorMessage, prettyDay } from "./lib";
+import { errorMessage, prettyDay, useToday } from "./lib";
 import { Button, Card, ErrorNote, Field, Pill, inputClass } from "./ui";
 
 export function BookTab(props: { clubId: Id<"clubs">; home: Home }) {
@@ -27,7 +27,10 @@ export function BookTab(props: { clubId: Id<"clubs">; home: Home }) {
 }
 
 export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }) {
-  const detail = useQuery(api.books.detail, { bookId: props.bookId });
+  const detail = useQuery(api.books.detail, {
+    bookId: props.bookId,
+    viewerDay: useToday(),
+  });
   const abandon = useMutation(api.books.abandon);
   const [error, setError] = useState<string | null>(null);
 

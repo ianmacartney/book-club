@@ -5,7 +5,13 @@ import {
   hasActiveMembership,
   requireUser,
 } from "./lib/access";
-import { addDays, isPushupDay, todayInTz } from "./lib/days";
+import {
+  addDays,
+  isPushupDay,
+  readerDay,
+  todayInTz,
+  viewerDay,
+} from "./lib/days";
 import { notifyStarLogged } from "./notifications";
 
 /**
@@ -71,8 +77,9 @@ export const submit = mutation({
 
 /** The viewer's last two weeks of check-ins, most recent day first. */
 export const history = query({
-  args: {},
-  handler: async (ctx) => {
+  // The fourteen-day window it reports slides at the reader's midnight.
+  args: { viewerDay },
+  handler: async (ctx, args) => {
     const userId = await currentUserId(ctx);
     if (userId === null) {
       return [];
@@ -81,7 +88,7 @@ export const history = query({
     if (user === null) {
       return [];
     }
-    const today = todayInTz(user.timezone);
+    const today = readerDay(args.viewerDay, user.timezone);
     const fromDay = addDays(today, -13);
     // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed to a bounded day window
     const checkins = await ctx.db
