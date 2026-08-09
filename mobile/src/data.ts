@@ -15,6 +15,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import type {
   BookDetail,
+  DailyQuote,
   CheckinStatus,
   FeedEvent,
   Home,
@@ -164,6 +165,12 @@ export function useInvites(): Invite[] | undefined {
   return useQuery(api.clubs.openInvites, { clubId });
 }
 
+/** undefined = loading; null = nothing minted for today. */
+export function useDailyQuote(): DailyQuote | null | undefined {
+  const clubId = useClubId();
+  return useQuery(api.quotes.today, { clubId, viewerDay: useToday() });
+}
+
 export function useSettings(): NotificationSettings | undefined {
   return useQuery(api.notifications.mySettings);
 }
@@ -301,6 +308,7 @@ export function useActions(): {
   }) => Promise<boolean>;
   createInvite: (forName?: string) => Promise<string | null>;
   submitFeedback: (message: string) => Promise<boolean>;
+  reactToQuote: (quoteId: string, reaction: "up" | "down" | null) => void;
   declareAbsence: (args: {
     fromDay: string;
     toDay: string;
@@ -322,6 +330,7 @@ export function useActions(): {
   const updateProfile = useMutation(api.users.updateProfile);
   const createInvite = useMutation(api.clubs.createInvite);
   const submitFeedback = useMutation(api.feedback.submit);
+  const reactToQuote = useMutation(api.quotes.react);
   const declareAbsence = useMutation(api.offgrid.declare);
   const updateAbsence = useMutation(api.offgrid.update);
   const cancelAbsence = useMutation(api.offgrid.cancel);
@@ -379,6 +388,11 @@ export function useActions(): {
         alertError(err);
         return false;
       }
+    },
+    reactToQuote: (quoteId, reaction) => {
+      reactToQuote({ quoteId: quoteId as Id<"quotes">, reaction }).catch(
+        alertError,
+      );
     },
     // The three absence writes report success so the editor can stay open on
     // a rejection — the club's rules (overlaps, a start in the past) come

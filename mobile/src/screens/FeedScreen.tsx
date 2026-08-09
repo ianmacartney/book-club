@@ -10,7 +10,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useActions, useBook, useFeed, useHome } from "../data";
+import {
+  useActions,
+  useBook,
+  useDailyQuote,
+  useFeed,
+  useHome,
+} from "../data";
 import { prettyDay, statusGlyph } from "../lib";
 import { colors, radius, serif, space } from "../theme";
 import { Btn, Muted, Rule } from "../ui";
@@ -385,10 +391,14 @@ function Composer() {
   const { checkIn } = useActions();
   const [writing, setWriting] = useState(false);
 
-  const viewer = home?.members.find((m) => m._id === home.viewerId);
-  // Ghosts watch the feed; they have nothing to report and no turns.
-  if (home === undefined || home.viewerIsGhost || viewer === undefined) {
+  if (home === undefined) {
     return null;
+  }
+  const viewer = home.members.find((m) => m._id === home.viewerId);
+  // Ghosts watch the feed; they have nothing to report and no turns. They owe
+  // no pushups either, so the quote isn't theirs to earn — it's just there.
+  if (home.viewerIsGhost || viewer === undefined) {
+    return <QuoteCard wrap />;
   }
 
   const currentSection =
@@ -421,6 +431,19 @@ function Composer() {
       )}
       {!viewer.isPushupDay ? (
         <Muted style={styles.centered}>Sunday — rest day 😴</Muted>
+      ) : chosen !== null ? (
+        // Reported: the answer is final, so the buttons are gone rather than
+        // sitting there looking tappable.
+        <View style={styles.lockedRow}>
+          <Text style={styles.lockedGlyph}>{statusGlyph[chosen]}</Text>
+          <Muted>
+            {chosen === "missed"
+              ? "Your day rolled over without a word — ⛈️⛈️."
+              : chosen === "star"
+                ? "Logged for today. No takebacks."
+                : "One ⛈️ logged for today. No takebacks."}
+          </Muted>
+        </View>
       ) : (
         <>
           <View style={styles.checkinRow}>
@@ -428,41 +451,28 @@ function Composer() {
               onPress={() => checkIn("star")}
               style={({ pressed }) => [
                 styles.emojiBtn,
-                chosen === "star" && styles.emojiChosenStar,
                 pressed && styles.emojiPressed,
               ]}
             >
-              <Text
-                style={[
-                  styles.emoji,
-                  chosen === "storm" && styles.emojiDimmed,
-                ]}
-              >
-                ⭐️
-              </Text>
+              <Text style={styles.emoji}>⭐️</Text>
             </Pressable>
             <Pressable
               onPress={() => checkIn("storm")}
               style={({ pressed }) => [
                 styles.emojiBtn,
-                chosen === "storm" && styles.emojiChosenStorm,
                 pressed && styles.emojiPressed,
               ]}
             >
-              <Text
-                style={[styles.emoji, chosen === "star" && styles.emojiDimmed]}
-              >
-                ⛈️
-              </Text>
+              <Text style={styles.emoji}>⛈️</Text>
             </Pressable>
           </View>
-          {chosen === null && (
-            <Muted style={styles.centered}>
-              Report before your midnight — silence costs ⛈️⛈️
-            </Muted>
-          )}
+          <Muted style={styles.centered}>
+            Report before your midnight — silence costs ⛈️⛈️. Whichever you
+            tap is final.
+          </Muted>
         </>
       )}
+      <QuoteCard />
       {currentSection && (
         <SubmitModal
           visible={writing}
@@ -475,6 +485,86 @@ function Composer() {
       )}
     </View>
   );
+}
+
+/**
+ * The day's quote — a line someone pulled out of a book the club read,
+ * unlocked by reporting your pushups. Everyone on the same calendar day sees
+ * the same one. `wrap` adds the composer's own frame, for the ghost case
+ * where the card is all there is.
+ */
+function QuoteCard(props: { wrap?: boolean }) {
+  const quote = useDailyQuote();
+  const { reactToQuote } = useActions();
+
+  if (quote === undefined || quote === null) {
+    return null; // loading, or no quote minted for today
+  }
+
+  const body = !quote.earned ? (
+    <View style={styles.quoteLocked}>
+      <Text style={styles.quoteLockedText}>
+        🔒 Today's quote unlocks when you report.
+      </Text>
+    </View>
+  ) : (
+    <View style={styles.quoteCard}>
+      <Text style={styles.dailyQuoteText}>{quote.text}</Text>
+      <View style={styles.quoteFooter}>
+        <Muted style={styles.quoteAttribution}>
+          {[
+            quote.bookTitle,
+            quote.sectionTitle,
+            quote.submittedByName === null
+              ? null
+              : `via ${quote.submittedByName}`,
+          ]
+            .filter((part) => part !== null)
+            .join(" · ") || "from the club's shelf"}
+        </Muted>
+        <View style={styles.quoteVotes}>
+          <Pressable
+            onPress={() =>
+              reactToQuote(
+                quote.quoteId,
+                quote.myReaction === "up" ? null : "up",
+              )
+            }
+            hitSlop={8}
+          >
+            <Text
+              style={[
+                styles.quoteVote,
+                quote.myReaction === "up" && styles.quoteVoteOn,
+              ]}
+            >
+              👍{quote.up > 0 ? ` ${quote.up}` : ""}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              reactToQuote(
+                quote.quoteId,
+                quote.myReaction === "down" ? null : "down",
+              )
+            }
+            hitSlop={8}
+          >
+            <Text
+              style={[
+                styles.quoteVote,
+                quote.myReaction === "down" && styles.quoteVoteOn,
+              ]}
+            >
+              👎{quote.down > 0 ? ` ${quote.down}` : ""}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+
+  return props.wrap ? <View style={styles.composer}>{body}</View> : body;
 }
 
 function SubmitModal(props: {
@@ -696,11 +786,42 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  emojiChosenStar: { backgroundColor: colors.goldSoft },
-  emojiChosenStorm: { backgroundColor: colors.stormSoft },
   emojiPressed: { transform: [{ scale: 0.92 }] },
   emoji: { fontSize: 34 },
-  emojiDimmed: { opacity: 0.35 },
+  lockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space(2),
+  },
+  lockedGlyph: { fontSize: 20 },
+  quoteCard: {
+    backgroundColor: colors.goldSoft,
+    borderRadius: radius.md,
+    padding: space(3),
+    gap: space(2),
+  },
+  dailyQuoteText: {
+    fontFamily: serif,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.ink,
+  },
+  quoteFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space(2),
+  },
+  quoteAttribution: { flex: 1, fontSize: 11 },
+  quoteVotes: { flexDirection: "row", gap: space(3) },
+  quoteVote: { fontSize: 13, opacity: 0.45 },
+  quoteVoteOn: { opacity: 1, fontWeight: "700" },
+  quoteLocked: {
+    borderRadius: radius.md,
+    paddingVertical: space(2),
+    alignItems: "center",
+  },
+  quoteLockedText: { fontSize: 12, color: colors.inkFaint },
   modal: {
     flex: 1,
     backgroundColor: colors.paper,

@@ -108,27 +108,32 @@ function TodayTab(props: { home: Home }) {
         {viewer && !viewer.isPushupDay ? (
           <Pill tone="ok">Sunday — rest day 😴</Pill>
         ) : (
-          <div className="flex gap-3">
-            <Button
-              onClick={() => void report("star")}
-              variant={viewer?.checkinToday === "star" ? "primary" : "ghost"}
-              className="flex-1 py-4 text-2xl"
-            >
-              ⭐️ Did them
-            </Button>
-            <Button
-              onClick={() => void report("storm")}
-              variant={viewer?.checkinToday === "storm" ? "primary" : "ghost"}
-              className="flex-1 py-4 text-2xl"
-            >
-              ⛈️ Didn't
-            </Button>
-          </div>
+          // Reported is reported: the answer can't be revised, so the buttons
+          // go away rather than sitting there erroring.
+          viewer?.checkinToday == null && (
+            <div className="flex gap-3">
+              <Button
+                onClick={() => void report("star")}
+                variant="ghost"
+                className="flex-1 py-4 text-2xl"
+              >
+                ⭐️ Did them
+              </Button>
+              <Button
+                onClick={() => void report("storm")}
+                variant="ghost"
+                className="flex-1 py-4 text-2xl"
+              >
+                ⛈️ Didn't
+              </Button>
+            </div>
+          )
         )}
         {viewer?.checkinToday && (
           <p className="mt-3 text-sm text-ink/60">
-            Logged {viewer.checkinToday === "star" ? "⭐️" : "⛈️"} for today —
-            you can change it until midnight.
+            {viewer.checkinToday === "missed"
+              ? "Your day rolled over without a word — ⛈️⛈️."
+              : `Logged ${viewer.checkinToday === "star" ? "⭐️" : "⛈️"} for today — that one's final.`}
           </p>
         )}
         <ErrorNote error={error} />

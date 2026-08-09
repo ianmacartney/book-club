@@ -188,3 +188,23 @@ export type NotificationSettings = {
 };
 
 export type Invite = { _id: string; code: string; forName: string | null };
+
+/**
+ * The quote of the day. `null` from the query means none was minted; the
+ * unearned shape carries no text, because the backend won't send it until
+ * you've reported (see convex/quotes.ts).
+ */
+export type DailyQuote =
+  | { earned: false }
+  | {
+      earned: true;
+      quoteId: string;
+      text: string;
+      bookTitle: string | null;
+      sectionTitle: string | null;
+      submittedByName: string | null;
+      submittedDay: string | null;
+      up: number;
+      down: number;
+      myReaction: "up" | "down" | null;
+    };

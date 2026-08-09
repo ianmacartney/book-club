@@ -114,6 +114,9 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
   day = previous submission day + 2, in the assignee's tz. The hourly cron
   (`convex/rollover.ts`) bills late days and missed pushups idempotently;
   `submitSection` also settles outstanding late days at submission time.
+- **Check-ins are final.** `pushups:submit` refuses a second report for the
+  day — no editing, no takebacks. That's what makes the quote a reward for
+  committing. Genuine mistakes are an admin fix (`setup:backfillCheckin`).
 - **Quote of the day** (`convex/quotes.ts`): the club's own submitted quotes,
   split one-per-row into a `quotes` deck, each holding a random `sort` in
   [0,1). Every day takes the next `sort` above the highest day already minted

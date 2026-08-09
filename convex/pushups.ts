@@ -16,9 +16,13 @@ import { notifyStarLogged } from "./notifications";
 
 /**
  * Report today's pushups: ⭐️ if you did them, ⛈️ if you didn't (1 cloud).
- * Only today — in your own timezone — can be reported, and you can change
- * your answer until your day rolls over. Saying nothing costs 2 clouds
- * (applied by the nightly rollover in crons.ts).
+ * Only today — in your own timezone — can be reported, and the answer is
+ * **final**: it can't be edited or taken back once it lands. Saying nothing
+ * costs 2 clouds (applied by the nightly rollover in crons.ts).
+ *
+ * Locking is what earns the day's quote (see quotes.ts) — the reward is for
+ * committing to an answer, so it can't be a toggle. Genuine mistakes are an
+ * admin fix: `setup:backfillCheckin` replaces a day's row and its clouds.
  */
 export const submit = mutation({
   args: { status: v.union(v.literal("star"), v.literal("storm")) },
@@ -36,39 +40,30 @@ export const submit = mutation({
       .query("checkins")
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", today))
       .unique();
-    if (existing !== null && existing.status === "missed") {
-      throw new ConvexError("That day already rolled over.");
+    if (existing !== null) {
+      throw new ConvexError(
+        existing.status === "missed"
+          ? "That day already rolled over."
+          : "You already reported today — that one's locked in.",
+      );
     }
 
-    // Reconcile the self-reported cloud when the answer changes.
-    const existingCloud = await ctx.db
-      .query("clouds")
-      .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", today))
-      // eslint-disable-next-line @convex-dev/no-filter-in-query -- narrows one user-day (a handful of rows) by source; a source index would be overkill
-      .filter((q) => q.eq(q.field("source"), "pushups_storm"))
-      .unique();
-    if (args.status === "storm" && existingCloud === null) {
+    // Nothing to reconcile: no check-in for the day means no self-reported
+    // cloud for it either, and neither can be revised after this point.
+    if (args.status === "storm") {
       await ctx.db.insert("clouds", {
         userId: user._id,
         day: today,
         count: 1,
         source: "pushups_storm",
       });
-    } else if (args.status === "star" && existingCloud !== null) {
-      await ctx.db.delete("clouds", existingCloud._id);
     }
-
-    if (existing === null) {
-      await ctx.db.insert("checkins", {
-        userId: user._id,
-        day: today,
-        status: args.status,
-      });
-    } else {
-      await ctx.db.patch("checkins", existing._id, { status: args.status });
-    }
-    // Announce a fresh ⭐️ to clubmates who opted in (not on re-toggles).
-    if (args.status === "star" && existing?.status !== "star") {
+    await ctx.db.insert("checkins", {
+      userId: user._id,
+      day: today,
+      status: args.status,
+    });
+    if (args.status === "star") {
       await notifyStarLogged(ctx, user);
     }
     return null;
