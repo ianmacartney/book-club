@@ -1,7 +1,9 @@
 import { internalMutation } from "./_generated/server";
+import { clubMemberships } from "./lib/access";
 import { accrueLateClouds } from "./lib/clouds";
 import { addDays, dayInTz, isPushupDay, todayInTz } from "./lib/days";
 import { offGridOn } from "./lib/offgrid";
+import { mintDailyQuote } from "./quotes";
 
 /** How far back the missed-pushups sweep looks, in case cron runs were missed. */
 const CATCH_UP_DAYS = 7;
@@ -16,6 +18,7 @@ const CATCH_UP_DAYS = 7;
  *     period settle as a ⛈️ (1 cloud) instead.
  *  2. Every active book's current section accrues 2 clouds per full day
  *     it's overdue, reckoned in the assignee's timezone.
+ *  3. Each club draws its quote of the day (quotes.ts).
  */
 export const processAll = internalMutation({
   args: {},
@@ -88,6 +91,24 @@ export const processAll = internalMutation({
       }
       const assignee = await ctx.db.get("users", current.assignedTo);
       await accrueLateClouds(ctx, book, current, todayInTz(assignee?.timezone));
+    }
+
+    // --- 3. Quote of the day ----------------------------------------------
+    // Minted here rather than on check-in so Sundays get one too, and so the
+    // first member to report doesn't pay for it. Members straddle timezones,
+    // so a club can briefly have two local days in play — each is its own
+    // day and draws its own card.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one row per club — a handful
+    const clubs = await ctx.db.query("clubs").collect();
+    for (const club of clubs) {
+      const days = new Set<string>();
+      for (const membership of await clubMemberships(ctx, club._id)) {
+        const member = await ctx.db.get("users", membership.userId);
+        days.add(todayInTz(member?.timezone));
+      }
+      for (const day of days) {
+        await mintDailyQuote(ctx, club._id, day);
+      }
     }
   },
 });

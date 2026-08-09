@@ -11,6 +11,7 @@ import {
   overlappingPeriods,
   settleOffGridDays,
 } from "./lib/offgrid";
+import { indexSectionQuotes, mintDailyQuote } from "./quotes";
 import { checkinStatus } from "./schema";
 
 /**
@@ -436,6 +437,14 @@ export const backfillSubmission = internalMutation({
         skip: isSkip,
       },
     });
+    await indexSectionQuotes(ctx, {
+      clubId: book.clubId,
+      bookId: book._id,
+      sectionId: current._id,
+      submittedBy: by._id,
+      submittedDay: args.day,
+      raw: args.quotes ?? "",
+    });
 
     const next = sections.find((s) => s.index === current.index + 1);
     if (next !== undefined) {
@@ -769,5 +778,133 @@ export const clearOffGrid = internalMutation({
       await ctx.db.delete("offGridPeriods", period._id);
     }
     return { removed: periods.length };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Quote deck (see convex/quotes.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the club's quote deck from every submission already on record.
+ * Idempotent per section, so re-running only picks up what's new.
+ *
+ * Batched because the club has ~1000 sections carrying eight years of text:
+ * `limit` caps how many sections one run inspects. Run it until `remaining`
+ * comes back 0.
+ */
+export const indexQuotes = internalMutation({
+  args: { clubId: v.id("clubs"), limit: v.optional(v.number()) },
+  returns: v.object({
+    scanned: v.number(),
+    added: v.number(),
+    remaining: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 200;
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — dozens
+    const books = await ctx.db
+      .query("books")
+      .withIndex("clubStatus", (q) => q.eq("clubId", args.clubId))
+      .collect();
+    let scanned = 0;
+    let added = 0;
+    let remaining = 0;
+    for (const book of books) {
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
+      const sections = await ctx.db
+        .query("sections")
+        .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
+        .collect();
+      for (const section of sections) {
+        const submission = section.submission;
+        if (submission === undefined || submission.quotes.trim() === "") {
+          continue;
+        }
+        // Sections already in the deck are free to skip — they must not eat
+        // the batch budget, or a re-run spends its whole limit on finished
+        // work and `remaining` never falls.
+        const already = await ctx.db
+          .query("quotes")
+          .withIndex("section", (q) => q.eq("sectionId", section._id))
+          .first();
+        if (already !== null) {
+          continue;
+        }
+        if (scanned >= limit) {
+          remaining++;
+          continue;
+        }
+        scanned++;
+        added += await indexSectionQuotes(ctx, {
+          clubId: args.clubId,
+          bookId: book._id,
+          sectionId: section._id,
+          submittedBy: submission.by,
+          submittedDay: submission.day,
+          raw: submission.quotes,
+        });
+      }
+    }
+    return { scanned, added, remaining };
+  },
+});
+
+/**
+ * Take a quote out of the deck for good. Hidden quotes keep their row (so the
+ * days they were already shown on still resolve) but never come up again.
+ */
+export const hideQuote = internalMutation({
+  args: { quoteId: v.id("quotes"), hidden: v.optional(v.boolean()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const quote = await ctx.db.get("quotes", args.quoteId);
+    if (quote === null) {
+      throw new ConvexError("Quote not found.");
+    }
+    await ctx.db.patch("quotes", args.quoteId, {
+      hidden: args.hidden ?? true,
+    });
+    return null;
+  },
+});
+
+/**
+ * Today's quote is a dud: hide it and deal the next card in its place.
+ * `day` defaults to today.
+ *
+ * Not an undo — it only moves forwards. The replacement is drawn from after
+ * the deck's high-water mark (see `mintDailyQuote`), so the card being
+ * replaced falls behind the cursor and won't come round again until the deck
+ * wraps. Passing `hide: false` therefore rarely does what it looks like: it
+ * leaves the dud in the deck for the next pass but still deals a new card.
+ */
+export const rerollDailyQuote = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    day: v.optional(v.string()),
+    hide: v.optional(v.boolean()),
+  },
+  returns: v.object({ hidQuote: v.boolean(), text: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args) => {
+    const day = args.day ?? todayInTz(undefined);
+    const daily = await ctx.db
+      .query("dailyQuotes")
+      .withIndex("clubDay", (q) => q.eq("clubId", args.clubId).eq("day", day))
+      .unique();
+    if (daily === null) {
+      throw new ConvexError(`No quote minted for ${day}.`);
+    }
+    const hide = args.hide ?? true;
+    if (hide) {
+      await ctx.db.patch("quotes", daily.quoteId, { hidden: true });
+    }
+    await ctx.db.delete("dailyQuotes", daily._id);
+    await mintDailyQuote(ctx, args.clubId, day);
+    const fresh = await ctx.db
+      .query("dailyQuotes")
+      .withIndex("clubDay", (q) => q.eq("clubId", args.clubId).eq("day", day))
+      .unique();
+    return { hidQuote: hide, text: fresh?.text ?? null };
   },
 });

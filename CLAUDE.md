@@ -114,6 +114,17 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
   day = previous submission day + 2, in the assignee's tz. The hourly cron
   (`convex/rollover.ts`) bills late days and missed pushups idempotently;
   `submitSection` also settles outstanding late days at submission time.
+- **Quote of the day** (`convex/quotes.ts`): the club's own submitted quotes,
+  split one-per-row into a `quotes` deck, each holding a random `sort` in
+  [0,1). Every day takes the next `sort` above the highest day already minted
+  (`dailyQuotes`), wrapping at the end — a shuffled deck, so nothing repeats
+  until all ~825 have run, and new submissions drop in at a random spot. The
+  cursor is the *max* minted day, not the previous calendar day: members
+  straddle timezones, so two days can be in play, and stepping from "the day
+  before me" would deal both the same card. Minted by the hourly cron (so
+  Sundays get one too), gated server-side on having checked in — an unearned
+  client is never sent the text. Ghosts always see it; they owe no pushups,
+  so they could never earn it.
 
 ## Admin mutations (`convex/setup.ts`, all via `npx convex run`)
 
@@ -162,6 +173,16 @@ npx convex run setup:setOffGrid \
 # Drop periods overlapping a range (default: today onward). Clouds already
 # billed for days away stay — undo those with backfillCheckin:
 npx convex run setup:clearOffGrid '{"clubId":"<club>","userName":"Peter"}'
+
+# Build the quote deck from submissions already on record. Idempotent per
+# section; batched, so run until "remaining" comes back 0:
+npx convex run setup:indexQuotes '{"clubId":"<club>","limit":200}'
+# Retire a bad quote (never comes up again; days it already ran on still show
+# it). Pass hidden:false to put it back:
+npx convex run setup:hideQuote '{"quoteId":"<quotesId>"}'
+# Today's quote is a dud — hide it and deal the next card. Moves FORWARDS
+# only: the replaced card falls behind the cursor until the deck wraps.
+npx convex run setup:rerollDailyQuote '{"clubId":"<club>","day":"2026-08-07"}'
 
 # Historical imports: setup:importPastBook (whole finished/abandoned book,
 # dedupes on title+startedDay), setup:importCheckins (bulk, insert-if-absent,

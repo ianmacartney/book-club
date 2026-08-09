@@ -27,6 +27,15 @@ export async function requireMembership(
   ctx: QueryCtx | MutationCtx,
   clubId: Id<"clubs">,
 ): Promise<Doc<"users">> {
+  return (await requireMembershipRow(ctx, clubId)).user;
+}
+
+/** As `requireMembership`, but hands back the membership too — for callers
+ * that need the role (ghosts owe nothing, so some rules don't apply to them). */
+export async function requireMembershipRow(
+  ctx: QueryCtx | MutationCtx,
+  clubId: Id<"clubs">,
+): Promise<{ user: Doc<"users">; membership: Doc<"memberships"> }> {
   const user = await requireUser(ctx);
   const membership = await ctx.db
     .query("memberships")
@@ -35,7 +44,7 @@ export async function requireMembership(
   if (membership === null) {
     throw new ConvexError("You are not a member of this club.");
   }
-  return user;
+  return { user, membership };
 }
 
 export async function clubMemberships(

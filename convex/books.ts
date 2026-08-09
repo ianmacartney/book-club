@@ -13,6 +13,7 @@ import {
   notifyBookFinished,
   notifySectionSubmitted,
 } from "./notifications";
+import { indexSectionQuotes } from "./quotes";
 
 export const DAYS_PER_SECTION = 2;
 
@@ -189,15 +190,26 @@ export const submitSection = mutation({
       });
     }
 
+    const submittedDay = todayInTz(user.timezone);
     await ctx.db.patch("sections", section._id, {
       submission: {
         by: user._id,
-        day: todayInTz(user.timezone),
+        day: submittedDay,
         at: Date.now(),
         quotes: args.quotes,
         thoughts: args.thoughts,
         skip: isSkip,
       },
+    });
+    // Feed the lines into the club's quote deck, where they'll surface as a
+    // quote of the day some random morning from here on.
+    await indexSectionQuotes(ctx, {
+      clubId: book.clubId,
+      bookId: book._id,
+      sectionId: section._id,
+      submittedBy: user._id,
+      submittedDay,
+      raw: args.quotes,
     });
 
     // Ghosts hear about submissions too — they follow along, they just

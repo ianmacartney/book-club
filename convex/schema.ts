@@ -204,6 +204,59 @@ export default defineSchema({
     clubId: v.optional(v.id("clubs")),
   }).index("userId", ["userId"]),
 
+  /**
+   * The club's deck of quotes, split out of section submissions. One row per
+   * individual line, so a dud can be hidden without losing the good quote
+   * that shared a submission with it.
+   *
+   * `sort` is a random float in [0, 1) — the row's position in a fixed random
+   * permutation of the deck. Each day steps to the next `sort` above the day
+   * before, wrapping at the end, which deals the deck in shuffled order:
+   * nothing repeats until every quote has had its turn, and a newly submitted
+   * quote drops into a random spot in the remaining cycle.
+   */
+  quotes: defineTable({
+    clubId: v.id("clubs"),
+    text: v.string(),
+    sort: v.number(),
+    // Hidden quotes stay out of the deck; the index keys on it so skipping
+    // them costs nothing at read time.
+    hidden: v.boolean(),
+    // Provenance — where the line was pulled from.
+    sectionId: v.optional(v.id("sections")),
+    bookId: v.optional(v.id("books")),
+    submittedBy: v.optional(v.id("users")),
+    submittedDay: v.optional(v.string()),
+  })
+    .index("clubDeck", ["clubId", "hidden", "sort"])
+    // Keeps re-indexing a submission idempotent.
+    .index("section", ["sectionId"]),
+
+  // The quote each club day landed on. One row per club per day, minted by
+  // the hourly cron, which is also what freezes the pick for the whole day.
+  dailyQuotes: defineTable({
+    clubId: v.id("clubs"),
+    day: v.string(),
+    quoteId: v.id("quotes"),
+    // Frozen at mint: hiding or rewording a quote can't change what the club
+    // was actually shown that day.
+    text: v.string(),
+    // The deck cursor this day landed on — tomorrow steps from here. Held
+    // here rather than looked up through `quoteId` so that hiding a quote
+    // can't strand the cursor.
+    sort: v.number(),
+  }).index("clubDay", ["clubId", "day"]),
+
+  // 👍/👎 on a quote. Unlike a check-in these are freely changeable.
+  quoteReactions: defineTable({
+    userId: v.id("users"),
+    quoteId: v.id("quotes"),
+    reaction: v.union(v.literal("up"), v.literal("down")),
+  })
+    .index("quoteUser", ["quoteId", "userId"])
+    // For "the quotes I liked" — not surfaced yet.
+    .index("userReaction", ["userId", "reaction"]),
+
   // Sunday snapshots, compiled by cron.
   summaries: defineTable({
     clubId: v.id("clubs"),
