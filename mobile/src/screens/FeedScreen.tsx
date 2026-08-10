@@ -555,7 +555,11 @@ function QuoteCard(props: { wrap?: boolean }) {
                 quote.myReaction === "up" ? null : "up",
               )
             }
-            hitSlop={8}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.voteBtn,
+              pressed && styles.votePressed,
+            ]}
           >
             <Text
               style={[
@@ -573,7 +577,11 @@ function QuoteCard(props: { wrap?: boolean }) {
                 quote.myReaction === "down" ? null : "down",
               )
             }
-            hitSlop={8}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.voteBtn,
+              pressed && styles.votePressed,
+            ]}
           >
             <Text
               style={[
@@ -845,8 +853,18 @@ const styles = StyleSheet.create({
     gap: space(2),
   },
   quoteAttribution: { flex: 1, fontSize: 11 },
-  quoteVotes: { flexDirection: "row", gap: space(3) },
-  quoteVote: { fontSize: 13, opacity: 0.45 },
+  // Spacing between the two comes from their own padding — a 44pt target is
+  // the smallest a thumb reliably hits.
+  quoteVotes: { flexDirection: "row", gap: space(1) },
+  voteBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    paddingHorizontal: space(2),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  votePressed: { opacity: 0.5 },
+  quoteVote: { fontSize: 18, opacity: 0.45 },
   quoteVoteOn: { opacity: 1, fontWeight: "700" },
   modal: {
     flex: 1,
