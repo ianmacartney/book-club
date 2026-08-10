@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { BookTab } from "./BookTab";
@@ -81,20 +81,49 @@ export function ClubView(props: {
 
 export type Home = FunctionReturnType<typeof api.clubs.home>;
 
+/** Seconds a fresh report can be taken back; the backend allows a couple
+ * more so an undo tapped on zero isn't refused by its own round trip. */
+const UNDO_SECONDS = 10;
+
 function TodayTab(props: { home: Home }) {
   const { home } = props;
   const submit = useMutation(api.pushups.submit);
+  const undo = useMutation(api.pushups.undo);
   const history = useQuery(api.pushups.history, { viewerDay: useToday() });
   const [error, setError] = useState<string | null>(null);
+  // Only counts down in the session that reported — coming back tomorrow
+  // shouldn't offer to undo a settled day. See UNDO_WINDOW_MS on the backend.
+  const [undoLeft, setUndoLeft] = useState<number | null>(null);
   const viewer = home.members.find((m) => m._id === home.viewerId);
+
+  useEffect(() => {
+    if (undoLeft === null) return;
+    if (undoLeft <= 0) {
+      setUndoLeft(null);
+      return;
+    }
+    const timer = setTimeout(() => setUndoLeft(undoLeft - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [undoLeft]);
 
   const report = async (status: "star" | "storm") => {
     setError(null);
     try {
       await submit({ status });
+      setUndoLeft(UNDO_SECONDS);
     } catch (err) {
       setError(errorMessage(err));
     }
+  };
+
+  const takeBack = async () => {
+    setError(null);
+    try {
+      await undo();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+    setUndoLeft(null);
   };
 
   return (
@@ -130,10 +159,20 @@ function TodayTab(props: { home: Home }) {
           )
         )}
         {viewer?.checkinToday && (
-          <p className="mt-3 text-sm text-ink/60">
-            {viewer.checkinToday === "missed"
-              ? "Your day rolled over without a word — ⛈️⛈️."
-              : `Logged ${viewer.checkinToday === "star" ? "⭐️" : "⛈️"} for today — that one's final.`}
+          <p className="mt-3 flex items-center gap-3 text-sm text-ink/60">
+            <span>
+              {viewer.checkinToday === "missed"
+                ? "Your day rolled over without a word — ⛈️⛈️."
+                : `Logged ${viewer.checkinToday === "star" ? "⭐️" : "⛈️"} for today.`}
+            </span>
+            {undoLeft !== null && (
+              <button
+                onClick={() => void takeBack()}
+                className="font-bold tabular-nums text-accent"
+              >
+                Undo · {undoLeft}s
+              </button>
+            )}
           </p>
         )}
         <ErrorNote error={error} />

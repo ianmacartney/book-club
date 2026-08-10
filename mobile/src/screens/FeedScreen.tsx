@@ -385,11 +385,40 @@ function ReplyBar(props: { target: ReplyTarget; onDismiss: () => void }) {
   );
 }
 
+/** Seconds a fresh report can be taken back — the backend allows a couple
+ * more, so an undo tapped on zero isn't refused by its own round trip. */
+const UNDO_SECONDS = 10;
+
 function Composer() {
   const home = useHome();
   const book = useBook();
-  const { checkIn } = useActions();
+  const { checkIn, undoCheckIn } = useActions();
   const [writing, setWriting] = useState(false);
+  // Counts down only in the session that did the reporting — reopening the
+  // app an hour later shouldn't offer to undo a settled day.
+  const [undoLeft, setUndoLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (undoLeft === null) {
+      return;
+    }
+    if (undoLeft <= 0) {
+      setUndoLeft(null);
+      return;
+    }
+    const timer = setTimeout(() => setUndoLeft(undoLeft - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [undoLeft]);
+
+  const report = async (status: "star" | "storm") => {
+    if (await checkIn(status)) {
+      setUndoLeft(UNDO_SECONDS);
+    }
+  };
+  const undo = async () => {
+    await undoCheckIn();
+    setUndoLeft(null);
+  };
 
   if (home === undefined) {
     return null;
@@ -432,45 +461,44 @@ function Composer() {
       {!viewer.isPushupDay ? (
         <Muted style={styles.centered}>Sunday — rest day 😴</Muted>
       ) : chosen !== null ? (
-        // Reported: the answer is final, so the buttons are gone rather than
-        // sitting there looking tappable.
+        // Reported: the answer stands, so the buttons are gone rather than
+        // sitting there looking tappable — bar a moment to catch a mis-tap.
         <View style={styles.lockedRow}>
           <Text style={styles.lockedGlyph}>{statusGlyph[chosen]}</Text>
           <Muted>
             {chosen === "missed"
               ? "Your day rolled over without a word — ⛈️⛈️."
               : chosen === "star"
-                ? "Logged for today. No takebacks."
-                : "One ⛈️ logged for today. No takebacks."}
+                ? "Logged for today."
+                : "One ⛈️ logged for today."}
           </Muted>
+          {undoLeft !== null && (
+            <Pressable onPress={() => void undo()} hitSlop={10}>
+              <Text style={styles.undoLink}>Undo · {undoLeft}s</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
-        <>
-          <View style={styles.checkinRow}>
-            <Pressable
-              onPress={() => checkIn("star")}
-              style={({ pressed }) => [
-                styles.emojiBtn,
-                pressed && styles.emojiPressed,
-              ]}
-            >
-              <Text style={styles.emoji}>⭐️</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => checkIn("storm")}
-              style={({ pressed }) => [
-                styles.emojiBtn,
-                pressed && styles.emojiPressed,
-              ]}
-            >
-              <Text style={styles.emoji}>⛈️</Text>
-            </Pressable>
-          </View>
-          <Muted style={styles.centered}>
-            Report before your midnight — silence costs ⛈️⛈️. Whichever you
-            tap is final.
-          </Muted>
-        </>
+        <View style={styles.checkinRow}>
+          <Pressable
+            onPress={() => void report("star")}
+            style={({ pressed }) => [
+              styles.emojiBtn,
+              pressed && styles.emojiPressed,
+            ]}
+          >
+            <Text style={styles.emoji}>⭐️</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void report("storm")}
+            style={({ pressed }) => [
+              styles.emojiBtn,
+              pressed && styles.emojiPressed,
+            ]}
+          >
+            <Text style={styles.emoji}>⛈️</Text>
+          </Pressable>
+        </View>
       )}
       <QuoteCard />
       {currentSection && (
@@ -777,17 +805,24 @@ const styles = StyleSheet.create({
   checkinRow: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: space(10),
+    gap: space(18),
+    paddingVertical: space(1),
   },
   emojiBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   emojiPressed: { transform: [{ scale: 0.92 }] },
-  emoji: { fontSize: 34 },
+  emoji: { fontSize: 56 },
+  undoLink: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.accent,
+    fontVariant: ["tabular-nums"],
+  },
   lockedRow: {
     flexDirection: "row",
     alignItems: "center",

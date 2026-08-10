@@ -293,7 +293,8 @@ export function useFeed(): {
 // ---------------------------------------------------------------------------
 
 export function useActions(): {
-  checkIn: (status: "star" | "storm") => void;
+  checkIn: (status: "star" | "storm") => Promise<boolean>;
+  undoCheckIn: () => Promise<void>;
   submitSection: (sectionId: string, quotes: string, thoughts: string) => void;
   postReply: (sectionId: string, body: string) => Promise<boolean>;
   updateSettings: (patch: {
@@ -323,6 +324,7 @@ export function useActions(): {
   cancelAbsence: (periodId: string) => Promise<boolean>;
 } {
   const checkIn = useMutation(api.pushups.submit);
+  const undoCheckIn = useMutation(api.pushups.undo);
   const submitSection = useMutation(api.books.submitSection);
   const postReply = useMutation(api.replies.post);
   const updateSettings = useMutation(api.notifications.updateSettings);
@@ -336,8 +338,19 @@ export function useActions(): {
   const cancelAbsence = useMutation(api.offgrid.cancel);
   const clubId = useClubId();
   return {
-    checkIn: (status) => {
-      checkIn({ status }).catch(alertError);
+    // Reports success so the caller can start its undo countdown from the
+    // moment the report actually landed.
+    checkIn: async (status) => {
+      try {
+        await checkIn({ status });
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
+    },
+    undoCheckIn: async () => {
+      await undoCheckIn().catch(alertError);
     },
     submitSection: (sectionId, quotes, thoughts) => {
       submitSection({
