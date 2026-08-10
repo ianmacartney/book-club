@@ -525,17 +525,14 @@ function QuoteCard(props: { wrap?: boolean }) {
   const quote = useDailyQuote();
   const { reactToQuote } = useActions();
 
-  if (quote === undefined || quote === null) {
-    return null; // loading, or no quote minted for today
+  // Loading, nothing minted, or not yet earned. Nothing is shown for the
+  // unearned case either — no teaser, no placeholder: until you report, the
+  // composer is the two buttons and nothing else. The quote just appears.
+  if (quote === undefined || quote === null || !quote.earned) {
+    return null;
   }
 
-  const body = !quote.earned ? (
-    <View style={styles.quoteLocked}>
-      <Text style={styles.quoteLockedText}>
-        🔒 Today's quote unlocks when you report.
-      </Text>
-    </View>
-  ) : (
+  const body = (
     <View style={styles.quoteCard}>
       <Text style={styles.dailyQuoteText}>{quote.text}</Text>
       <View style={styles.quoteFooter}>
@@ -851,12 +848,6 @@ const styles = StyleSheet.create({
   quoteVotes: { flexDirection: "row", gap: space(3) },
   quoteVote: { fontSize: 13, opacity: 0.45 },
   quoteVoteOn: { opacity: 1, fontWeight: "700" },
-  quoteLocked: {
-    borderRadius: radius.md,
-    paddingVertical: space(2),
-    alignItems: "center",
-  },
-  quoteLockedText: { fontSize: 12, color: colors.inkFaint },
   modal: {
     flex: 1,
     backgroundColor: colors.paper,
