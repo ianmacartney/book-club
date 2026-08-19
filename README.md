@@ -34,9 +34,10 @@ npx @convex-dev/auth  # one-time: generates AUTH_PRIVATE_KEY / AUTH_JWKS
 npm run dev           # vite + convex dev, in parallel
 ```
 
-Auth is username + password via Convex Auth v2 (`@convex-dev/auth@reboot`,
-installed from pkg.pr.new — still alpha). The auth components (`core`,
-`authPasswordProvider`) are mounted in `convex/convex.config.ts`.
+Auth is username + password via Convex Auth v2 (installed from pkg.pr.new at a
+pinned commit, `@convex-dev/auth@d236554` — still alpha). The auth components
+(`core`, `authPasswordProvider`, `authUsername`) are mounted in
+`convex/convex.config.ts`.
 
 ## How it hangs together
 

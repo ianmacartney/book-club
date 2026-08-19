@@ -23,8 +23,20 @@ builds under).
 
 ## Deploying (hosting)
 
-The app is hosted on Convex static hosting. **Dev deployment** is live at
-https://secret-barracuda-975.convex.site.
+The app is hosted on Convex static hosting. **The club runs on the personal dev
+deployment** (`dev/ian-macartney` = `secret-barracuda-975`), live at
+https://secret-barracuda-975.convex.site — that's what `mobile/app.json`'s
+`extra.convexUrl` points at, and it must stay that way.
+
+`.env.local` currently selects **`auth-test`** (`upbeat-ermine-211`), a
+deployment in the same project holding a *mirror* of the club's data, used to
+rehearse the Convex Auth v2 upgrade. Nobody signs in there. Two traps:
+
+- `npm run deploy:dev` follows `.env.local`, so it would ship the frontend to
+  the mirror, not to the club. Run `npx convex deployment select dev` first.
+- **Deploying app code to the mirror starts its crons**, which bill clouds and
+  push real notifications to real phones (this happened 2026-08-14 → 08-19).
+  Clear `pushTokens` there, or pause the deployment, if you ever push to it.
 
 Re-deploy **only when your changes are stable** — i.e. `npm run typecheck`
 passes and you've verified the change works. Then:
@@ -165,6 +177,12 @@ npx convex run setup:setMemberRole \
 # Delete a duplicate identity from an accidental second sign-up. Refuses
 # unless the row is unreferenced everywhere, so it can't eat a real member:
 npx convex run setup:deleteOrphanUser '{"userId":"<usersId>"}'
+
+# One-shot: copy usernames from the core `accounts` table into the
+# `authUsername` component (the Convex Auth bump moved them). Until it runs on
+# a given deployment, EVERY existing member's sign-in fails USER_NOT_FOUND.
+# Idempotent; leaves account-less rows (Tucker) alone so they stay claimable:
+npx convex run setup:backfillAuthUsernames '{}'
 
 # Change the username someone types to sign in. Refuses if another row already
 # answers to it (by name or username) or if another account has claimed it:

@@ -217,7 +217,7 @@ new binary so OTA and native stay matched.
   from cache, but EAS's clean container re-downloads the *current* tarball,
   its hash no longer matches the lockfile `integrity`, and `npm ci` dies with
   EINTEGRITY in the **Install dependencies** phase. Fix: pin to the immutable
-  commit URL (`@convex-dev/auth@<sha>`, currently `@348fb3a`) and regenerate
+  commit URL (`@convex-dev/auth@<sha>`, currently `@d236554`) and regenerate
   the lockfile. **`npm run verify:deps` detects this** and prints the exact
   `npm pkg set` command to re-pin (it reads the current commit from the
   tarball's `x-commit-key` header). Re-pin rather than going back to `@reboot`

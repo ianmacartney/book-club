@@ -1,6 +1,6 @@
 # Mobile auth wiring — how it works (done)
 
-Auth is live: Convex Auth v2 (`@convex-dev/auth@reboot`, same pinned
+Auth is live: Convex Auth v2 (`@convex-dev/auth@d236554`, same pinned
 pkg.pr.new build as the web app) with username + password against the shared
 dev deployment (`expo.extra.convexUrl` in app.json).
 
@@ -23,15 +23,34 @@ dev deployment (`expo.extra.convexUrl` in app.json).
   `src/types.ts`. The feed pages backwards through day windows with
   `useQueries`, pinning older windows by their `nextThrough` cursor.
 
-## React Native runtime gotcha: `window.addEventListener`
+## Token persistence across app restarts
 
-RN defines `window` (it's the global object) but no DOM event APIs. The auth
-session manager's cross-tab storage listener guards on `typeof window`
+`storage={secureStorage}` on `ConvexAuthProvider` is what makes a session
+survive the app closing, and it is **not** optional. With no `storage`, the
+package falls back to `InMemoryStorage` — React Native has a `window` but no
+`localStorage` — and every launch starts signed out. As of `@d236554` that
+fallback logs a one-time `[convex-auth]` warning naming the problem, so if you
+ever see it in the Metro console, the provider lost its `storage` prop.
+
+`TokenStorage` methods may return promises, so the `expo-secure-store` adapter
+in `src/convex.ts` needs no buffering of its own: the session manager awaits the
+store during `init()` and reports `isLoading` until it resolves, rather than
+flashing "signed out" and bouncing to the auth screen.
+
+Storage keys are namespaced by the deployment URL stripped to alphanumerics, so
+**pointing `expo.extra.convexUrl` at a different deployment silently signs
+everyone out** — the tokens are still in the keychain, under keys the new
+namespace never looks up.
+
+### Resolved: the `window.addEventListener` crash
+
+RN defines `window` (it's the global object) but no DOM event APIs, and the
+session manager's cross-tab storage listener used to guard on `typeof window`
 alone, so `init()` threw `TypeError: undefined is not a function` at launch.
-`src/polyfills.ts` (first import in index.ts) installs no-op
-`window.addEventListener`/`removeEventListener`. Upstream fix for the auth
-package: guard on `typeof window.addEventListener === "function"` in
-`#attachStorageListener`/`dispose` instead.
+`src/polyfills.ts` shimmed no-op listeners to work around it. Fixed upstream in
+convex-auth #465 (`domEventTarget()` now checks for the listener functions and
+returns `null` on native), so the shim and its `index.ts` import were deleted.
+Restore them if the auth pin is ever rolled back past that commit.
 
 ## The Metro gotcha (SDK 57) — read before touching config
 
