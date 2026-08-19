@@ -2,6 +2,7 @@ import { defineApp } from "convex/server";
 import { v } from "convex/values";
 import core from "@convex-dev/auth/core/convex.config.js";
 import passwordProvider from "@convex-dev/auth/providers/password/convex.config.js";
+import username from "@convex-dev/auth/username/convex.config.js";
 import pushNotifications from "@convex-dev/expo-push-notifications/convex.config.js";
 import staticHosting from "@convex-dev/static-hosting/convex.config.js";
 
@@ -26,6 +27,9 @@ app.use(core, {
   },
 });
 app.use(passwordProvider);
+// Usernames live in their own component rather than in the core `accounts`
+// table, so a username identifies a *user* and not one provider's account.
+app.use(username);
 
 // Expo push notifications for the mobile app (see convex/notifications.ts).
 app.use(pushNotifications);
