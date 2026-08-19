@@ -130,6 +130,11 @@ export const setMemberRole = internalMutation({
  * but it's what a new sign-up matches on to claim an existing row, and what
  * `memberByName` resolves admin commands against, so it has to stay unique
  * across both `username` and `name`.
+ *
+ * For a member who already has an account, the word they type at sign-in lives
+ * in the `authUsername` component, so the rename is pushed there too. An
+ * account-less row (the imported roster) has nothing to push: renaming it just
+ * changes which sign-up can claim it.
  */
 export const renameUsername = internalMutation({
   args: {
@@ -162,12 +167,12 @@ export const renameUsername = internalMutation({
       );
     }
 
-    // Accounts are keyed by the lowercased username. If one already exists for
-    // this word and belongs to someone else, renaming into it would point this
-    // row at a login it doesn't own.
+    // The username component owns username → user id. If this word already
+    // resolves to someone else, renaming into it would point this row at a
+    // login it doesn't own.
     const owner = await ctx.runQuery(
-      components.core.public.getUserIdByAccount,
-      { provider: "password", providerAccountId: needle },
+      components.authUsername.public.getUserIdByUsername,
+      { username: next },
     );
     if (owner !== null && owner !== user._id) {
       throw new ConvexError(
@@ -177,6 +182,24 @@ export const renameUsername = internalMutation({
 
     const before = user.username;
     await ctx.db.patch("users", user._id, { username: next });
+
+    // Move the login word too, but only for a row that has one — writing a
+    // username for an account-less row would make it un-claimable at sign-up.
+    const hasLogin = await ctx.runQuery(
+      components.authUsername.public.getUsername,
+      { userId: user._id },
+    );
+    if (hasLogin !== null) {
+      const result = await ctx.runMutation(
+        components.authUsername.public.setUsername,
+        { userId: user._id, username: next },
+      );
+      if (!result.success) {
+        throw new ConvexError(
+          `Can't rename the login to "${next}": ${result.userError.error}`,
+        );
+      }
+    }
     return `Renamed ${user.name ?? "?"}: @${before} → @${next}`;
   },
 });
@@ -324,6 +347,87 @@ export const deleteOrphanUser = internalMutation({
     }
     await ctx.db.delete("users", id);
     return `Deleted orphan user ${user.name ?? "?"} (@${user.username})`;
+  },
+});
+
+/**
+ * One-shot migration for the Convex Auth bump that moved usernames out of the
+ * core `accounts` table and into the `authUsername` component (upstream #446 /
+ * #459).
+ *
+ * Before: an account was keyed by its lowercased username, and `signIn` looked
+ * the user up by that key. After: the username component owns username → user
+ * id, and accounts are keyed by the app user id. The component starts empty, so
+ * until it's filled every existing member's sign-in fails with
+ * `USER_NOT_FOUND` — the password hashes are fine (they were always keyed by
+ * user id), it's only the lookup that's gone.
+ *
+ * Account-less rows are deliberately left alone: giving the imported roster
+ * (Tucker) a username here would make `signUpWithPassword` answer
+ * `USERNAME_TAKEN` and close the claim path that lets an ex-member sign in to
+ * their own history. Having no account is exactly what makes a row claimable.
+ *
+ * Idempotent — a user whose username is already in the component is counted and
+ * skipped, so this is safe to re-run.
+ */
+export const backfillAuthUsernames = internalMutation({
+  args: {},
+  returns: v.object({
+    migrated: v.number(),
+    alreadySet: v.number(),
+    noAccount: v.number(),
+    details: v.array(v.string()),
+  }),
+  handler: async (ctx) => {
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; a one-shot admin migration
+    const users = await ctx.db.query("users").collect();
+    let migrated = 0;
+    let alreadySet = 0;
+    let noAccount = 0;
+    const details: string[] = [];
+
+    for (const user of users) {
+      // The legacy account key. `users.username` keeps its original casing
+      // ("Ian M", "Schoony"); accounts were stored lowercased.
+      const legacyKey = user.username.trim().toLowerCase();
+      const owner = await ctx.runQuery(
+        components.core.public.getUserIdByAccount,
+        { provider: "password", providerAccountId: legacyKey },
+      );
+      if (owner === null) {
+        noAccount++;
+        continue;
+      }
+      if (owner !== user._id) {
+        // An account pointing somewhere other than the row that answers to its
+        // username. Migrating it would bind the login to the wrong identity.
+        throw new ConvexError(
+          `@${user.username}: account points at ${owner}, not ${user._id}. ` +
+            `Resolve by hand before migrating.`,
+        );
+      }
+      const current = await ctx.runQuery(
+        components.authUsername.public.getUsername,
+        { userId: owner },
+      );
+      if (current !== null) {
+        alreadySet++;
+        continue;
+      }
+      const result = await ctx.runMutation(
+        components.authUsername.public.setUsername,
+        { userId: owner, username: user.username },
+      );
+      if (!result.success) {
+        throw new ConvexError(
+          `@${user.username}: ${result.userError.error}. Nothing was migrated.`,
+        );
+      }
+      migrated++;
+      details.push(`${user.name ?? "?"} → @${user.username}`);
+    }
+
+    return { migrated, alreadySet, noAccount, details };
   },
 });
 
