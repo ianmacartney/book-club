@@ -23,6 +23,30 @@ dev deployment (`expo.extra.convexUrl` in app.json).
   `src/types.ts`. The feed pages backwards through day windows with
   `useQueries`, pinning older windows by their `nextThrough` cursor.
 
+## Bumping auth = ship the server AND the phones
+
+An auth bump is **not** a server-only migration, even when every validator
+lines up. Upstream #447 turned `signInWithPassword` / `signUpWithPassword`
+from actions into mutations. The args and the result unions were untouched, so
+a diff of the validators says "compatible" — but the client picks the call
+*mechanism* from the function type (`useAction` vs `useMutation`), and Convex
+refuses the mismatch:
+
+```
+[CONVEX A(auth:signInWithPassword)] Trying to execute auth.js:signInWithPassword
+as Action, but it is defined as Mutation.
+```
+
+Live sessions kept working (`refreshSession` is a mutation in both), so this
+hides: nothing breaks until someone is signed *out*, and then they can't get
+back in. Shipped server-only on 2026-08-22 and every phone on the previous OTA
+was locked out of the login screen until an `ota:production` went out.
+
+When the auth package moves, compare **function kinds**, not just arg/return
+validators, for all four exports (`signInWithPassword`, `signUpWithPassword`,
+`refreshSession`, `signOut`) — and publish the OTA in the same sitting as the
+backend push.
+
 ## Token persistence across app restarts
 
 `storage={secureStorage}` on `ConvexAuthProvider` is what makes a session
