@@ -362,7 +362,7 @@ export const state = query({
     const names = new Map<Id<"users">, string>();
     for (const id of memberIds) {
       const u = await ctx.db.get("users", id);
-      names.set(id, u?.name ?? u?.username ?? "?");
+      names.set(id, u?.name ?? "?");
     }
     const round = poll.status === "runoff" ? "runoff" : "initial";
     // eslint-disable-next-line @convex-dev/no-collect-in-query -- one round's votes — at most one per member (~100)

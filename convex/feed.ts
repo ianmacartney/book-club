@@ -179,7 +179,7 @@ async function nameOf(
     return hit;
   }
   const user = await ctx.db.get("users", userId);
-  const name = user?.name ?? user?.username ?? "former member";
+  const name = user?.name ?? "former member";
   cache.set(userId, name);
   return name;
 }

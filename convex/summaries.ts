@@ -84,7 +84,7 @@ export const forClub = query({
         entries: await Promise.all(
           s.entries.map(async (e) => {
             const u = await ctx.db.get("users", e.userId);
-            return { ...e, name: u?.name ?? u?.username ?? "former member" };
+            return { ...e, name: u?.name ?? "former member" };
           }),
         ),
       })),

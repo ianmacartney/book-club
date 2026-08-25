@@ -1,11 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
-import {
-  isGhost,
-  requireMembership,
-  requireMembershipRow,
-} from "./lib/access";
+import { isGhost, requireMembership, requireMembershipRow } from "./lib/access";
 import { isPushupDay, readerDay, viewerDay } from "./lib/days";
 
 /**
@@ -38,7 +34,12 @@ export function splitQuotes(raw: string): string[] {
   const paragraphs = raw.split(/\n\s*\n/);
   const chunks = paragraphs.length > 1 ? paragraphs : raw.split(/\n/);
   return chunks
-    .map((chunk) => chunk.trim().replace(/^[-–—•*]\s+/, "").trim())
+    .map((chunk) =>
+      chunk
+        .trim()
+        .replace(/^[-–—•*]\s+/, "")
+        .trim(),
+    )
     .filter(
       (chunk) =>
         chunk.length >= MIN_QUOTE_CHARS && chunk.length <= MAX_QUOTE_CHARS,
@@ -186,8 +187,7 @@ export const today = query({
       .query("checkins")
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", day))
       .unique();
-    const earned =
-      !isPushupDay(day) || isGhost(membership) || checkin !== null;
+    const earned = !isPushupDay(day) || isGhost(membership) || checkin !== null;
     if (!earned) {
       return { earned: false as const };
     }
@@ -216,11 +216,12 @@ export const today = query({
       bookTitle: book?.title ?? null,
       sectionTitle: section?.title ?? null,
       // Attribution resolves live so a rename flows through.
-      submittedByName: submitter?.name ?? submitter?.username ?? null,
+      submittedByName: submitter?.name ?? null,
       submittedDay: quote?.submittedDay ?? null,
       up: reactions.filter((r) => r.reaction === "up").length,
       down: reactions.filter((r) => r.reaction === "down").length,
-      myReaction: reactions.find((r) => r.userId === user._id)?.reaction ?? null,
+      myReaction:
+        reactions.find((r) => r.userId === user._id)?.reaction ?? null,
     };
   },
 });

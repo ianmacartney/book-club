@@ -55,9 +55,9 @@ async function checkRange(
       `That's longer than ${MAX_OFF_GRID_DAYS} days — declare it in stretches.`,
     );
   }
-  const clashes = (await overlappingPeriods(ctx, userId, fromDay, toDay)).filter(
-    (p) => p._id !== exclude,
-  );
+  const clashes = (
+    await overlappingPeriods(ctx, userId, fromDay, toDay)
+  ).filter((p) => p._id !== exclude);
   if (clashes.length > 0) {
     const [first] = clashes;
     throw new ConvexError(
@@ -158,7 +158,9 @@ export const update = mutation({
       // Days already spent away keep the ⛈️ they were billed, so shortening
       // one is a change of plan, not a refund.
       note:
-        args.note === undefined ? period.note : cleanNote(args.note ?? undefined),
+        args.note === undefined
+          ? period.note
+          : cleanNote(args.note ?? undefined),
     });
     return null;
   },
@@ -240,7 +242,7 @@ export const forClub = query({
           );
           return periods.map((p) => ({
             userId: user._id,
-            name: user.name ?? user.username,
+            name: user.name,
             ...shape(p, today),
           }));
         }),

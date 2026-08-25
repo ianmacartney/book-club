@@ -229,7 +229,7 @@ export const submitSection = mutation({
         sectionTitle: section.title,
         by: user,
         assigneeName:
-          assignee?.name ?? assignee?.username ?? "the assignee",
+          assignee?.name ?? "the assignee",
         skip: isSkip,
         thoughts: args.thoughts,
         memberIds,
@@ -245,7 +245,7 @@ export const submitSection = mutation({
       const loserNames = await Promise.all(
         (finished?.result?.loserIds ?? []).map(async (id) => {
           const u = await ctx.db.get("users", id);
-          return u?.name ?? u?.username ?? "?";
+          return u?.name ?? "?";
         }),
       );
       await notifyBookFinished(ctx, {
@@ -331,7 +331,7 @@ export const detail = query({
     const names = new Map<Id<"users">, string>();
     for (const userId of userIds) {
       const u = await ctx.db.get("users", userId);
-      names.set(userId, u?.name ?? u?.username ?? "former member");
+      names.set(userId, u?.name ?? "former member");
     }
 
     let currentInfo = null;
@@ -422,7 +422,7 @@ export const history = query({
         const loserNames = await Promise.all(
           (book.result?.loserIds ?? []).map(async (id) => {
             const u = await ctx.db.get("users", id);
-            return u?.name ?? u?.username ?? "?";
+            return u?.name ?? "?";
           }),
         );
         return {

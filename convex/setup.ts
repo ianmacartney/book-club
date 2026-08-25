@@ -3,7 +3,7 @@ import { components } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, internalMutation } from "./_generated/server";
 import { DAYS_PER_SECTION, finishBook, startBookHelper } from "./books";
-import { clubMemberIds } from "./lib/access";
+import { clubMemberships } from "./lib/access";
 import { accrueLateClouds } from "./lib/clouds";
 import { addDays, diffDays, isValidDay, todayInTz } from "./lib/days";
 import {
@@ -27,19 +27,15 @@ async function memberByName(
   // Historical imports may reference ex-members (ghost users, no membership).
   includeGhosts = false,
 ): Promise<Doc<"users">> {
-  const memberIds = await clubMemberIds(ctx, clubId);
-  const pool = includeGhosts
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
-    ? await ctx.db.query("users").collect()
-    : (await Promise.all(memberIds.map((id) => ctx.db.get("users", id)))).filter(
-        (m) => m !== null,
-      );
+  const memberships = await clubMemberships(ctx, clubId);
+  const memberIds = memberships
+    .filter((m) => !includeGhosts || m.role !== "ghost")
+    .map((m) => m.userId);
+  const pool = (
+    await Promise.all(memberIds.map((id) => ctx.db.get("users", id)))
+  ).filter((m) => m !== null);
   const needle = name.trim().toLowerCase();
-  const found = pool.filter(
-    (m) =>
-      (m.name ?? "").toLowerCase() === needle ||
-      m.username.toLowerCase() === needle,
-  );
+  const found = pool.filter((m) => (m.name ?? "").toLowerCase() === needle);
   if (found.length !== 1) {
     throw new ConvexError(
       `${found.length === 0 ? "No" : "Multiple"} users match "${name}". ` +
@@ -49,40 +45,6 @@ async function memberByName(
   }
   return found[0];
 }
-
-/**
- * A user row for a former member so historical books can reference them.
- * No membership row, so they never accrue new obligations and can't log in.
- */
-export const createGhostUser = internalMutation({
-  args: {
-    username: v.string(),
-    name: v.string(),
-    timezone: v.optional(v.string()),
-  },
-  returns: v.id("users"),
-  handler: async (ctx, args) => {
-    // Match on username OR display name, case-insensitively: this runs from
-    // `scripts/import-history.py`, and a re-run after someone was renamed must
-    // not fork a second row for the same person.
-    const username = args.username.trim().toLowerCase();
-    const name = args.name.trim().toLowerCase();
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
-    const existing = (await ctx.db.query("users").collect()).filter(
-      (u) =>
-        u.username.trim().toLowerCase() === username ||
-        (u.name ?? "").trim().toLowerCase() === name,
-    );
-    if (existing.length > 0) {
-      return existing[0]._id;
-    }
-    return await ctx.db.insert("users", {
-      username: args.username,
-      name: args.name,
-      timezone: args.timezone,
-    });
-  },
-});
 
 /**
  * Set a member's role: "ghost" watches the club (feed, library, standings)
@@ -149,285 +111,22 @@ export const renameUsername = internalMutation({
     if (next.length === 0) {
       throw new ConvexError("Username can't be empty.");
     }
-    const needle = next.toLowerCase();
 
-    // Any other row answering to this word would make `memberByName` ambiguous
-    // and let a sign-up claim the wrong identity.
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
-    const clashes = (await ctx.db.query("users").collect()).filter(
-      (u) =>
-        u._id !== user._id &&
-        (u.username.trim().toLowerCase() === needle ||
-          (u.name ?? "").trim().toLowerCase() === needle),
+    const result = await ctx.runMutation(
+      components.authUsername.public.setUsername,
+      {
+        userId: user._id,
+        username: args.newUsername,
+      },
     );
-    if (clashes.length > 0) {
-      throw new ConvexError(
-        `"${next}" already answers to ` +
-          clashes.map((u) => `${u.name ?? "?"} (@${u.username})`).join(", "),
-      );
-    }
-
-    // The username component owns username → user id. If this word already
-    // resolves to someone else, renaming into it would point this row at a
-    // login it doesn't own.
-    const owner = await ctx.runQuery(
-      components.authUsername.public.getUserIdByUsername,
-      { username: next },
-    );
-    if (owner !== null && owner !== user._id) {
-      throw new ConvexError(
-        `The username "${next}" is already claimed by another account.`,
-      );
+    if (!result.success) {
+      throw new ConvexError(result.userError);
     }
 
     const before = user.username;
     await ctx.db.patch("users", user._id, { username: next });
 
-    // Move the login word too, but only for a row that has one — writing a
-    // username for an account-less row would make it un-claimable at sign-up.
-    const hasLogin = await ctx.runQuery(
-      components.authUsername.public.getUsername,
-      { userId: user._id },
-    );
-    if (hasLogin !== null) {
-      const result = await ctx.runMutation(
-        components.authUsername.public.setUsername,
-        { userId: user._id, username: next },
-      );
-      if (!result.success) {
-        throw new ConvexError(
-          `Can't rename the login to "${next}": ${result.userError.error}`,
-        );
-      }
-    }
     return `Renamed ${user.name ?? "?"}: @${before} → @${next}`;
-  },
-});
-
-/**
- * Delete a `users` row that nothing references — cleanup for a duplicate
- * identity created by an accidental second sign-up (see the "Peter" case,
- * 2026-07-29).
- *
- * Refuses unless the row is unreferenced everywhere, so it can't take a real
- * member with it, nor a ghost like Tucker whose row is still cited by years of
- * books and sections. Deleting the app row does NOT remove the auth account
- * that points at it (component data is only reachable through the component's
- * own API, and it exposes no delete) — remove that in the Convex dashboard,
- * under the `core` component's `accounts` table, or the username stays claimed.
- * Order doesn't matter: `users.createOrUpdateUser` re-binds rather than failing
- * if an account outlives its row.
- */
-export const deleteOrphanUser = internalMutation({
-  args: { userId: v.id("users") },
-  returns: v.string(),
-  handler: async (ctx, args) => {
-    const user = await ctx.db.get("users", args.userId);
-    if (user === null) {
-      throw new ConvexError(`No such user: ${args.userId}`);
-    }
-    const id = args.userId;
-    const blockers: string[] = [];
-    const note = (n: number, what: string) => {
-      if (n > 0) blockers.push(`${n} ${what}`);
-    };
-
-    note(
-      (
-        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-        await ctx.db
-          .query("memberships")
-          .withIndex("userId", (q) => q.eq("userId", id))
-          .collect()
-      ).length,
-      "membership(s)",
-    );
-    note(
-      (
-        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-        await ctx.db
-          .query("checkins")
-          .withIndex("userDay", (q) => q.eq("userId", id))
-          .collect()
-      ).length,
-      "checkin(s)",
-    );
-    note(
-      (
-        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-        await ctx.db
-          .query("clouds")
-          .withIndex("userDay", (q) => q.eq("userId", id))
-          .collect()
-      ).length,
-      "cloud row(s)",
-    );
-    note(
-      (
-        // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-        await ctx.db
-          .query("notificationPrefs")
-          .withIndex("userId", (q) => q.eq("userId", id))
-          .collect()
-      ).length,
-      "notification pref(s)",
-    );
-
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-    const books = await ctx.db.query("books").collect();
-    note(
-      books.filter(
-        (b) =>
-          b.suggestedBy === id ||
-          b.rotation.includes(id) ||
-          (b.result?.loserIds ?? []).includes(id) ||
-          (b.result?.tallies ?? []).some((t) => t.userId === id),
-      ).length,
-      "book(s)",
-    );
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-    const sections = await ctx.db.query("sections").collect();
-    note(
-      sections.filter(
-        (s) => s.assignedTo === id || s.submission?.by === id,
-      ).length,
-      "section(s)",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("replies").collect()).filter((r) => r.userId === id)
-        .length,
-      "reply/replies",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("clubs").collect()).filter((c) => c.createdBy === id)
-        .length,
-      "club(s) created",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("polls").collect()).filter((p) => p.createdBy === id)
-        .length,
-      "poll(s)",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("nominations").collect()).filter(
-        (n) => n.suggestedBy === id,
-      ).length,
-      "nomination(s)",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("votes").collect()).filter((v2) => v2.userId === id)
-        .length,
-      "vote(s)",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("summaries").collect()).filter((s) =>
-        s.entries.some((e) => e.userId === id),
-      ).length,
-      "summary/summaries",
-    );
-    note(
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- admin reference check before deleting an orphan; refuses a still-referenced row, and every set is bounded by club-size limits
-      (await ctx.db.query("invites").collect()).filter(
-        (i) => i.createdBy === id || i.usedBy === id,
-      ).length,
-      "invite(s)",
-    );
-
-    if (blockers.length > 0) {
-      throw new ConvexError(
-        `Refusing to delete ${user.name ?? "?"} (@${user.username}): still referenced by ` +
-          `${blockers.join(", ")}. This is not an orphan.`,
-      );
-    }
-    await ctx.db.delete("users", id);
-    return `Deleted orphan user ${user.name ?? "?"} (@${user.username})`;
-  },
-});
-
-/**
- * One-shot migration for the Convex Auth bump that moved usernames out of the
- * core `accounts` table and into the `authUsername` component (upstream #446 /
- * #459).
- *
- * Before: an account was keyed by its lowercased username, and `signIn` looked
- * the user up by that key. After: the username component owns username → user
- * id, and accounts are keyed by the app user id. The component starts empty, so
- * until it's filled every existing member's sign-in fails with
- * `USER_NOT_FOUND` — the password hashes are fine (they were always keyed by
- * user id), it's only the lookup that's gone.
- *
- * Account-less rows are deliberately left alone: giving the imported roster
- * (Tucker) a username here would make `signUpWithPassword` answer
- * `USERNAME_TAKEN` and close the claim path that lets an ex-member sign in to
- * their own history. Having no account is exactly what makes a row claimable.
- *
- * Idempotent — a user whose username is already in the component is counted and
- * skipped, so this is safe to re-run.
- */
-export const backfillAuthUsernames = internalMutation({
-  args: {},
-  returns: v.object({
-    migrated: v.number(),
-    alreadySet: v.number(),
-    noAccount: v.number(),
-    details: v.array(v.string()),
-  }),
-  handler: async (ctx) => {
-    // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; a one-shot admin migration
-    const users = await ctx.db.query("users").collect();
-    let migrated = 0;
-    let alreadySet = 0;
-    let noAccount = 0;
-    const details: string[] = [];
-
-    for (const user of users) {
-      // The legacy account key. `users.username` keeps its original casing
-      // ("Ian M", "Schoony"); accounts were stored lowercased.
-      const legacyKey = user.username.trim().toLowerCase();
-      const owner = await ctx.runQuery(
-        components.core.public.getUserIdByAccount,
-        { provider: "password", providerAccountId: legacyKey },
-      );
-      if (owner === null) {
-        noAccount++;
-        continue;
-      }
-      if (owner !== user._id) {
-        // An account pointing somewhere other than the row that answers to its
-        // username. Migrating it would bind the login to the wrong identity.
-        throw new ConvexError(
-          `@${user.username}: account points at ${owner}, not ${user._id}. ` +
-            `Resolve by hand before migrating.`,
-        );
-      }
-      const current = await ctx.runQuery(
-        components.authUsername.public.getUsername,
-        { userId: owner },
-      );
-      if (current !== null) {
-        alreadySet++;
-        continue;
-      }
-      const result = await ctx.runMutation(
-        components.authUsername.public.setUsername,
-        { userId: owner, username: user.username },
-      );
-      if (!result.success) {
-        throw new ConvexError(
-          `@${user.username}: ${result.userError.error}. Nothing was migrated.`,
-        );
-      }
-      migrated++;
-      details.push(`${user.name ?? "?"} → @${user.username}`);
-    }
-
-    return { migrated, alreadySet, noAccount, details };
   },
 });
 
@@ -597,7 +296,9 @@ export const importPastBook = internalMutation({
   },
   returns: v.union(v.id("books"), v.null()),
   handler: async (ctx, args) => {
-    const status = args.abandoned ? ("abandoned" as const) : ("finished" as const);
+    const status = args.abandoned
+      ? ("abandoned" as const)
+      : ("finished" as const);
     // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — bounded (<1000)
     const already = await ctx.db
       .query("books")
@@ -765,7 +466,10 @@ export const backfillCheckin = internalMutation({
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", args.day))
       .collect();
     for (const entry of clouds) {
-      if (entry.source === "pushups_storm" || entry.source === "pushups_missed") {
+      if (
+        entry.source === "pushups_storm" ||
+        entry.source === "pushups_missed"
+      ) {
         await ctx.db.delete("clouds", entry._id);
       }
     }
@@ -989,7 +693,10 @@ export const rerollDailyQuote = internalMutation({
     day: v.optional(v.string()),
     hide: v.optional(v.boolean()),
   },
-  returns: v.object({ hidQuote: v.boolean(), text: v.union(v.string(), v.null()) }),
+  returns: v.object({
+    hidQuote: v.boolean(),
+    text: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx, args) => {
     const day = args.day ?? todayInTz(undefined);
     const daily = await ctx.db

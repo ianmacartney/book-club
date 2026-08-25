@@ -8,7 +8,13 @@ import {
   requireUser,
 } from "./lib/access";
 import { cloudsForUser } from "./lib/clouds";
-import { addDays, isPushupDay, readerDay, todayInTz, viewerDay } from "./lib/days";
+import {
+  addDays,
+  isPushupDay,
+  readerDay,
+  todayInTz,
+  viewerDay,
+} from "./lib/days";
 import { offGridOn } from "./lib/offgrid";
 
 function generateInviteCode(): string {
@@ -202,7 +208,7 @@ export const home = query({
         const offGrid = await offGridOn(ctx, userId, today);
         return {
           _id: userId,
-          name: user.name ?? user.username,
+          name: user.name,
           timezone: user.timezone ?? null,
           today,
           isPushupDay: isPushupDay(today),
@@ -218,14 +224,10 @@ export const home = query({
 
     // Ghosts watch from the doorway: listed, but with no statuses or clouds.
     const ghosts = await Promise.all(
-      memberships
-        .filter(isGhost)
-        .map(async (m) => {
-          const user = await ctx.db.get("users", m.userId);
-          return user === null
-            ? null
-            : { _id: user._id, name: user.name ?? user.username };
-        }),
+      memberships.filter(isGhost).map(async (m) => {
+        const user = await ctx.db.get("users", m.userId);
+        return user === null ? null : { _id: user._id, name: user.name };
+      }),
     );
 
     return {

@@ -44,7 +44,7 @@ async function prefsFor(
 }
 
 function displayName(user: Doc<"users"> | null): string {
-  return user?.name ?? user?.username ?? "someone";
+  return user?.name ?? "someone";
 }
 
 // ---------------------------------------------------------------------------
