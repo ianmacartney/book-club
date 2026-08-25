@@ -31,11 +31,11 @@ export const tallyValidator = v.object({
 export default defineSchema({
   // Convex Auth creates a row per account via users.createOrUpdateUser.
   users: defineTable({
-    username: v.string(),
-    name: v.optional(v.string()),
+    username: v.optional(v.string()), //  deprecated
+    name: v.string(),
     // IANA timezone; days are always reckoned in the member's own timezone.
     timezone: v.optional(v.string()),
-  }).index("username", ["username"]),
+  }),
 
   clubs: defineTable({
     name: v.string(),

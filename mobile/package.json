@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@convex-dev/auth": "https://pkg.pr.new/@convex-dev/auth@d236554",
+    "@convex-dev/auth": "^2.0.0-alpha.1",
     "@expo/vector-icons": "^15.0.2",
     "convex": "^1.42.3",
     "expo": "~57.0.8",

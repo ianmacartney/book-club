@@ -28,9 +28,7 @@ export function AuthScreen() {
         Pushups every day. A book on the go.{"\n"}⭐️ or ⛈️ — your call.
       </Muted>
       {mode === "logIn" ? <LogInForm /> : <SignUpForm />}
-      <Pressable
-        onPress={() => setMode(mode === "logIn" ? "signUp" : "logIn")}
-      >
+      <Pressable onPress={() => setMode(mode === "logIn" ? "signUp" : "logIn")}>
         <Text style={styles.switchLine}>
           {mode === "logIn" ? (
             <>
@@ -130,6 +128,8 @@ function SignUpForm() {
           return `Password must be at most ${result.userError.maximumLength} characters.`;
         case "PASSWORD_HAS_SURROUNDING_WHITESPACE":
           return "Password can't start or end with whitespace.";
+        case "PASSWORD_TOO_COMMON":
+          return "Password is too common. Please choose a stronger password.";
         case "OTHER_ERROR":
           console.error("Sign-up failed:", result.userError.cause);
           return "Something went wrong. Please try again.";
@@ -190,9 +190,7 @@ function CredentialsForm(props: {
         editable={!props.pending}
         onSubmitEditing={props.onSubmit}
       />
-      {props.error !== null && (
-        <Text style={styles.error}>{props.error}</Text>
-      )}
+      {props.error !== null && <Text style={styles.error}>{props.error}</Text>}
       <Btn
         onPress={props.onSubmit}
         disabled={

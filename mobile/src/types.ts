@@ -42,7 +42,6 @@ export type Home = {
 
 export type Me = {
   _id: string;
-  username: string;
   name: string;
   timezone: string | null;
   today: string;

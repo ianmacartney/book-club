@@ -45,7 +45,9 @@ export function AuthScreen() {
 }
 
 function LogInForm() {
-  const { signIn, pending } = useSignInWithPassword(api.auth.signInWithPassword);
+  const { signIn, pending } = useSignInWithPassword(
+    api.auth.signInWithPassword,
+  );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +115,9 @@ function LogInForm() {
 }
 
 function SignUpForm() {
-  const { signUp, pending } = useSignUpWithPassword(api.auth.signUpWithPassword);
+  const { signUp, pending } = useSignUpWithPassword(
+    api.auth.signUpWithPassword,
+  );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +146,8 @@ function SignUpForm() {
               return `Password must be at most ${result.userError.maximumLength} characters.`;
             case "PASSWORD_HAS_SURROUNDING_WHITESPACE":
               return "Password can't start or end with whitespace.";
+            case "PASSWORD_TOO_COMMON":
+              return "Password is too common. Please choose a stronger password.";
             case "OTHER_ERROR":
               console.error("Sign-up failed:", result.userError.cause);
               return "Something went wrong. Please try again.";

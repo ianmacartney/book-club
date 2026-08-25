@@ -25,6 +25,7 @@ app.use(core, {
     AUTH_PRIVATE_KEY: app.env.AUTH_PRIVATE_KEY,
     AUTH_JWKS: app.env.AUTH_JWKS,
   },
+  name: "core",
 });
 app.use(passwordProvider);
 // Usernames live in their own component rather than in the core `accounts`
