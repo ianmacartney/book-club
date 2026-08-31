@@ -16,7 +16,7 @@ import {
   overlappingPeriods,
   settleOffGridDays,
 } from "./lib/offgrid";
-import { indexSectionQuotes, mintDailyQuote } from "./quotes";
+import { indexSectionQuotes, redealDay } from "./quotes";
 import { checkinStatus } from "./schema";
 
 /**
@@ -678,6 +678,9 @@ export const hideQuote = internalMutation({
     if (quote === null) {
       throw new ConvexError("Quote not found.");
     }
+    // Also the way to undo the club's own veto (`quotes.react`), which
+    // retires a quote one-way: pass `hidden: false` to put it back in the
+    // deck even with the 👎s against it still standing.
     await ctx.db.patch("quotes", args.quoteId, {
       hidden: args.hidden ?? true,
     });
@@ -718,12 +721,7 @@ export const rerollDailyQuote = internalMutation({
     if (hide) {
       await ctx.db.patch("quotes", daily.quoteId, { hidden: true });
     }
-    await ctx.db.delete("dailyQuotes", daily._id);
-    await mintDailyQuote(ctx, args.clubId, day);
-    const fresh = await ctx.db
-      .query("dailyQuotes")
-      .withIndex("clubDay", (q) => q.eq("clubId", args.clubId).eq("day", day))
-      .unique();
+    const fresh = await redealDay(ctx, args.clubId, day);
     return { hidQuote: hide, text: fresh?.text ?? null };
   },
 });

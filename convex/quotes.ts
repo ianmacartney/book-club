@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, mutation, query } from "./_generated/server";
-import { isGhost, requireMembership, requireMembershipRow } from "./lib/access";
+import { isGhost, requireMembershipRow } from "./lib/access";
 import { isPushupDay, readerDay, viewerDay } from "./lib/days";
 
 /**
@@ -152,6 +152,38 @@ export async function mintDailyQuote(
   });
 }
 
+/** What a club landed on for `day`, if anything has been minted yet. */
+async function dailyFor(
+  ctx: QueryCtx,
+  clubId: Id<"clubs">,
+  day: string,
+): Promise<Doc<"dailyQuotes"> | null> {
+  return await ctx.db
+    .query("dailyQuotes")
+    .withIndex("clubDay", (q) => q.eq("clubId", clubId).eq("day", day))
+    .unique();
+}
+
+/**
+ * Throw away the card `day` landed on and deal the next one in its place.
+ *
+ * Only ever moves forwards: the replacement is drawn from the deck's
+ * high-water mark (see `mintDailyQuote`), so the outgoing quote must already
+ * be hidden — otherwise the very next step lands straight back on it.
+ */
+export async function redealDay(
+  ctx: MutationCtx,
+  clubId: Id<"clubs">,
+  day: string,
+): Promise<Doc<"dailyQuotes"> | null> {
+  const daily = await dailyFor(ctx, clubId, day);
+  if (daily !== null) {
+    await ctx.db.delete("dailyQuotes", daily._id);
+  }
+  await mintDailyQuote(ctx, clubId, day);
+  return await dailyFor(ctx, clubId, day);
+}
+
 async function reactionsFor(
   ctx: QueryCtx,
   quoteId: Id<"quotes">,
@@ -161,6 +193,50 @@ async function reactionsFor(
     .query("quoteReactions")
     .withIndex("quoteUser", (q) => q.eq("quoteId", quoteId))
     .collect();
+}
+
+/** Where the vote on a quote stands right now. */
+async function tallyReactions(
+  ctx: QueryCtx,
+  quoteId: Id<"quotes">,
+): Promise<{ up: number; down: number }> {
+  const reactions = await reactionsFor(ctx, quoteId);
+  return {
+    up: reactions.filter((r) => r.reaction === "up").length,
+    down: reactions.filter((r) => r.reaction === "down").length,
+  };
+}
+
+/**
+ * The club's veto, applied after every reaction write: a quote with more 👎
+ * than 👍 leaves the deck, and if it's the card the club is looking at right
+ * now, the day moves on to the next one.
+ *
+ * Retiring is one-way, even though the votes behind it aren't. Taking a 👎
+ * back can't restore the quote, because the only thing restoring would buy
+ * is eligibility on a *future* pass through the deck — years out, at ~825
+ * quotes — while the day it was pulled from is gone either way (the deck
+ * only deals forwards). A mis-tap is an admin fix: `setup:hideQuote` with
+ * `hidden: false`.
+ */
+async function applyVerdict(
+  ctx: MutationCtx,
+  quote: Doc<"quotes">,
+  day: string,
+): Promise<void> {
+  const { up, down } = await tallyReactions(ctx, quote._id);
+  if (down <= up) {
+    return;
+  }
+  if (!quote.hidden) {
+    await ctx.db.patch("quotes", quote._id, { hidden: true });
+  }
+  // Only the reader's own day can be showing it: every day draws its own
+  // card, and days already past keep the copy frozen into `dailyQuotes`.
+  const daily = await dailyFor(ctx, quote.clubId, day);
+  if (daily !== null && daily.quoteId === quote._id) {
+    await redealDay(ctx, quote.clubId, day);
+  }
 }
 
 /**
@@ -176,10 +252,7 @@ export const today = query({
   handler: async (ctx, args) => {
     const { user, membership } = await requireMembershipRow(ctx, args.clubId);
     const day = readerDay(args.viewerDay, user.timezone);
-    const daily = await ctx.db
-      .query("dailyQuotes")
-      .withIndex("clubDay", (q) => q.eq("clubId", args.clubId).eq("day", day))
-      .unique();
+    const daily = await dailyFor(ctx, args.clubId, day);
     if (daily === null) {
       return null; // nothing minted for today
     }
@@ -228,13 +301,17 @@ export const today = query({
 
 /**
  * 👍/👎 a quote, or pass `null` to take it back. Freely changeable — unlike a
- * check-in, nothing is at stake. Today these only record an opinion; hiding
- * and re-ranking off the back of them is a later job.
+ * check-in, nothing is at stake.
+ *
+ * The votes aren't just an opinion: once a quote is more 👎 than 👍 the club
+ * has vetoed it, and `applyVerdict` pulls it from the deck and deals the day
+ * a new card on the spot.
  */
 export const react = mutation({
   args: {
     quoteId: v.id("quotes"),
     reaction: v.union(v.literal("up"), v.literal("down"), v.null()),
+    viewerDay,
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -242,7 +319,8 @@ export const react = mutation({
     if (quote === null) {
       throw new ConvexError("Quote not found.");
     }
-    const user = await requireMembership(ctx, quote.clubId);
+    const { user } = await requireMembershipRow(ctx, quote.clubId);
+    const day = readerDay(args.viewerDay, user.timezone);
     const existing = await ctx.db
       .query("quoteReactions")
       .withIndex("quoteUser", (q) =>
@@ -253,9 +331,7 @@ export const react = mutation({
       if (existing !== null) {
         await ctx.db.delete("quoteReactions", existing._id);
       }
-      return null;
-    }
-    if (existing === null) {
+    } else if (existing === null) {
       await ctx.db.insert("quoteReactions", {
         userId: user._id,
         quoteId: args.quoteId,
@@ -266,6 +342,7 @@ export const react = mutation({
         reaction: args.reaction,
       });
     }
+    await applyVerdict(ctx, quote, day);
     return null;
   },
 });
