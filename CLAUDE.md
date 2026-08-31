@@ -144,6 +144,12 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
   Sundays get one too), gated server-side on having checked in — an unearned
   client is never sent the text. Ghosts always see it; they owe no pushups,
   so they could never earn it.
+- **The club can veto a quote.** 👍/👎 (`quotes:react`) aren't just an
+  opinion: the moment a quote stands at more 👎 than 👍 it leaves the deck and
+  the day it's showing on is dealt the next card, mid-day, for everyone. The
+  retirement is one-way — taking the 👎 back doesn't restore it, since the
+  day is gone either way and the next pass through the deck is years out.
+  Undo a bad veto with `setup:hideQuote {"hidden":false}`.
 
 ## Admin mutations (`convex/setup.ts`, all via `npx convex run`)
 

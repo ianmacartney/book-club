@@ -337,6 +337,7 @@ export function useActions(): {
   const updateAbsence = useMutation(api.offgrid.update);
   const cancelAbsence = useMutation(api.offgrid.cancel);
   const clubId = useClubId();
+  const viewerDay = useToday();
   return {
     // Reports success so the caller can start its undo countdown from the
     // moment the report actually landed.
@@ -402,10 +403,14 @@ export function useActions(): {
         return false;
       }
     },
+    // The day goes with the vote: a 👎 that tips a quote past its 👍s pulls it
+    // from the deck, and the server needs to know which day's card to replace.
     reactToQuote: (quoteId, reaction) => {
-      reactToQuote({ quoteId: quoteId as Id<"quotes">, reaction }).catch(
-        alertError,
-      );
+      reactToQuote({
+        quoteId: quoteId as Id<"quotes">,
+        reaction,
+        viewerDay,
+      }).catch(alertError);
     },
     // The three absence writes report success so the editor can stay open on
     // a rejection — the club's rules (overlaps, a start in the past) come
