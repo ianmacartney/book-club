@@ -28,15 +28,13 @@ deployment** (`dev/ian-macartney` = `secret-barracuda-975`), live at
 https://secret-barracuda-975.convex.site — that's what `mobile/app.json`'s
 `extra.convexUrl` points at, and it must stay that way.
 
-`.env.local` currently selects **`auth-test`** (`upbeat-ermine-211`), a
-deployment in the same project holding a *mirror* of the club's data, used to
-rehearse the Convex Auth v2 upgrade. Nobody signs in there. Two traps:
-
-- `npm run deploy:dev` follows `.env.local`, so it would ship the frontend to
-  the mirror, not to the club. Run `npx convex deployment select dev` first.
-- **Deploying app code to the mirror starts its crons**, which bill clouds and
-  push real notifications to real phones (this happened 2026-08-14 → 08-19).
-  Clear `pushTokens` there, or pause the deployment, if you ever push to it.
+`.env.local` selects it, so the deploy scripts follow it — check that before
+shipping, because `npm run deploy:dev` ships wherever `.env.local` points
+(`npx convex deployment select dev` puts it back). The `auth-test` mirror
+(`upbeat-ermine-211`) that used to live here is dead as of 2026-08-30; its
+lesson stands for any second deployment in this project, though — **pushing
+app code to one starts its crons**, which bill clouds and push real
+notifications to real phones (that happened 2026-08-14 → 08-19).
 
 Re-deploy **only when your changes are stable** — i.e. `npm run typecheck`
 passes and you've verified the change works. Then:
@@ -126,6 +124,17 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
   day = previous submission day + 2, in the assignee's tz. The hourly cron
   (`convex/rollover.ts`) bills late days and missed pushups idempotently;
   `submitSection` also settles outstanding late days at submission time.
+- **Write-ahead drafts** (`sections.draft`): the assignee of a *future*
+  section can bank quotes + thoughts now (`books:saveDraft`, undo with
+  `books:discardDraft`). `releaseDrafts` posts them the instant the section
+  before them lands — and chains, so a run of pre-written sections unspools
+  in one mutation. The hourly cron calls it too, as a backstop, *before*
+  billing late days so a book that should have moved on isn't charged.
+  Released write-ups carry `submission.draftedAt` and read "written ahead"
+  in the feed; the next reader's "you're up" push is suppressed when their
+  draft is about to fire. Saving a draft on a section that turns out to be
+  current already submits it on the spot and returns `"submitted"`.
+  Pairs with off-grid: bank the section, keep the deadline.
 - **Check-ins are final** after a short grace: `pushups:undo` takes back a
   report (and its ⛈ cloud) within `UNDO_WINDOW_MS` (12s server-side, clients
   offer 10) to catch a mis-tap; after that `pushups:submit` refuses a second
@@ -270,3 +279,32 @@ a 1am ET message lands on the "wrong" local day. When the user corrects you
   clouds) and `books:detail` (standings, current section, daysLate).
 - Backend deploy: `npx convex dev --once`. Typecheck both configs:
   `npm run typecheck`.
+
+## Verifying against a throwaway deployment
+
+The club's data is real, so exercise anything that writes somewhere else
+first. A local backend is the cheapest option (`npx convex deployment create`
+gets you a throwaway cloud one if you need a URL):
+
+```sh
+cp .env.local /tmp/env.local.backup   # the CLI rewrites it, --env-file or not
+npx convex dev --once --configure=existing   --team ianmacartney --project book-club-c4bab --dev-deployment local
+```
+
+The push then fails on `AUTH_JWKS, AUTH_PRIVATE_KEY` — `convex.config.ts`
+mounts the auth component, which declares them required. Copy them over
+rather than minting new ones:
+
+```sh
+for k in AUTH_JWKS AUTH_PRIVATE_KEY; do
+  npx convex env set "$k" "$(npx convex env get "$k" --deployment secret-barracuda-975)"     --deployment local
+done
+```
+
+Seed with a scratch `internalMutation` (`ctx.db.insert` straight into `users`
+/ `clubs` / `memberships`, then `startBookHelper`) and drive it with
+`npx convex run … --identity '{"subject":"<usersId>"}'`. Push sends log
+`No push token found` per member — harmless, `sendBatch` swallows it.
+Afterwards: delete the scratch file, `rm -rf .convex/local`, restore
+`.env.local`, and `git checkout convex/_generated/api.d.ts` (codegen will have
+added the scratch module to it).
