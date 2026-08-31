@@ -21,6 +21,22 @@ export const submissionValidator = v.object({
   quotes: v.string(),
   thoughts: v.string(),
   skip: v.boolean(), // true when submitted on behalf of an overdue member
+  // Set when the write-up was prepared ahead of the section's turn and
+  // released automatically: when the draft was written.
+  draftedAt: v.optional(v.number()),
+});
+
+/**
+ * A write-up prepared before its section came up. Only the assignee can
+ * leave one, and only on a section that isn't its turn yet — the moment it
+ * becomes current (the previous section landing, or the hourly cron as a
+ * backstop) the draft submits itself. See `releaseDrafts` in books.ts.
+ */
+export const draftValidator = v.object({
+  by: v.id("users"), // the assignee who wrote it
+  at: v.number(), // when it was last saved
+  quotes: v.string(),
+  thoughts: v.string(),
 });
 
 export const tallyValidator = v.object({
@@ -150,6 +166,8 @@ export default defineSchema({
     assignedTo: v.id("users"),
     dueDay: v.optional(v.string()), // set when the previous section lands
     submission: v.optional(submissionValidator),
+    // Written ahead of time; cleared when it releases into `submission`.
+    draft: v.optional(draftValidator),
   }).index("bookIdx", ["bookId", "index"]),
 
   // The club talking back: a reply to a section's write-up. Threads only

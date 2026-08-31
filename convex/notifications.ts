@@ -194,6 +194,9 @@ export async function notifySectionSubmitted(
     by: Doc<"users">;
     assigneeName: string;
     skip: boolean;
+    // The write-up was banked in advance and released the moment its turn
+    // came round, rather than typed just now.
+    early?: boolean;
     thoughts: string;
     memberIds: Id<"users">[];
     next: { assigneeId: Id<"users">; title: string; dueDay: string } | null;
@@ -203,9 +206,23 @@ export async function notifySectionSubmitted(
   // Brief header, then as much of the write-up as a push allows.
   const title = args.skip
     ? `${byName} covered “${args.sectionTitle}” for ${args.assigneeName}`
-    : `${byName} finished “${args.sectionTitle}”`;
+    : args.early
+      ? `${byName} had “${args.sectionTitle}” ready and waiting`
+      : `${byName} finished “${args.sectionTitle}”`;
   const body = asBody(args.thoughts);
   const sends: Send[] = [];
+  if (args.early) {
+    // Everyone else is being told; the writer wasn't in the room when their
+    // own draft went out, so they hear it too.
+    sends.push({
+      userId: args.by._id,
+      notification: {
+        title: `Your write-up for “${args.sectionTitle}” just posted`,
+        body: "You came up in the rotation, so the draft you left went out.",
+        data: { type: "submission", bookId: args.book._id },
+      },
+    });
+  }
   for (const memberId of args.memberIds) {
     if (memberId === args.by._id) {
       continue;

@@ -2,7 +2,12 @@ import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, internalMutation } from "./_generated/server";
-import { DAYS_PER_SECTION, finishBook, startBookHelper } from "./books";
+import {
+  DAYS_PER_SECTION,
+  finishBook,
+  releaseDrafts,
+  startBookHelper,
+} from "./books";
 import { clubMemberships } from "./lib/access";
 import { accrueLateClouds } from "./lib/clouds";
 import { addDays, diffDays, isValidDay, todayInTz } from "./lib/days";
@@ -254,6 +259,9 @@ export const backfillSubmission = internalMutation({
       await ctx.db.patch("sections", next._id, {
         dueDay: addDays(args.day, DAYS_PER_SECTION),
       });
+      // If the next reader had already banked their write-up, this backfill
+      // is what brings them up — so it posts, same as a live submission.
+      await releaseDrafts(ctx, book._id);
     } else {
       await finishBook(ctx, book);
     }

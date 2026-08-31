@@ -1,4 +1,5 @@
 import { internalMutation } from "./_generated/server";
+import { releaseDrafts } from "./books";
 import { clubMemberships } from "./lib/access";
 import { accrueLateClouds } from "./lib/clouds";
 import { addDays, dayInTz, isPushupDay, todayInTz } from "./lib/days";
@@ -16,8 +17,10 @@ const CATCH_UP_DAYS = 7;
  *     check-in and 2 stormy clouds — swept over the last week so a cron
  *     outage can't quietly forgive a day. Days inside a declared off-grid
  *     period settle as a ⛈️ (1 cloud) instead.
- *  2. Every active book's current section accrues 2 clouds per full day
- *     it's overdue, reckoned in the assignee's timezone.
+ *  2. Every active book releases any write-up banked for the section that
+ *     is now up (a backstop — normally it posts the moment the section
+ *     before it lands), then its current section accrues 2 clouds per full
+ *     day it's overdue, reckoned in the assignee's timezone.
  *  3. Each club draws its quote of the day (quotes.ts).
  */
 export const processAll = internalMutation({
@@ -79,6 +82,11 @@ export const processAll = internalMutation({
       .withIndex("status", (q) => q.eq("status", "active"))
       .collect();
     for (const book of activeBooks) {
+      // First: post anything written ahead whose turn has come. Normally
+      // this already happened the instant the section before it landed —
+      // this is the backstop, and it runs before the billing below so a
+      // book that should have moved on isn't charged for standing still.
+      await releaseDrafts(ctx, book._id);
       // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
       const sections = await ctx.db
         .query("sections")

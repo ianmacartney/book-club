@@ -124,6 +124,175 @@ export const start = mutation({
 });
 
 /**
+ * Land a write-up on the book's current section: the submission itself, its
+ * quotes into the club's deck, the next reader's clock, the push to the
+ * club — and the book's final standings when that was the last section.
+ *
+ * Shared by the live submit and the release of a pre-written draft. The
+ * historical backfill in setup.ts stays separate: it writes an explicit day
+ * and deliberately sends nothing.
+ */
+async function recordSubmission(
+  ctx: MutationCtx,
+  args: {
+    book: Doc<"books">;
+    sections: Doc<"sections">[]; // the whole book, sorted by index
+    section: Doc<"sections">;
+    by: Doc<"users">;
+    quotes: string;
+    thoughts: string;
+    isSkip: boolean;
+    // When this came out of a draft: the moment it was written.
+    draftedAt?: number;
+    // Overrides the transaction clock. A released draft lands in the same
+    // mutation as the submission that unblocked it, so `Date.now()` is
+    // identical for both and the feed's tiebreak would sort them by name —
+    // reading as though the draft came first. Nudging it forward keeps the
+    // timeline causal.
+    at?: number;
+  },
+): Promise<void> {
+  const { book, sections, section, by } = args;
+  const submittedDay = todayInTz(by.timezone);
+  await ctx.db.patch("sections", section._id, {
+    submission: {
+      by: by._id,
+      day: submittedDay,
+      at: args.at ?? Date.now(),
+      quotes: args.quotes,
+      thoughts: args.thoughts,
+      skip: args.isSkip,
+      draftedAt: args.draftedAt,
+    },
+    // Whatever was held in reserve has now been spent.
+    draft: undefined,
+  });
+  // Feed the lines into the club's quote deck, where they'll surface as a
+  // quote of the day some random morning from here on.
+  await indexSectionQuotes(ctx, {
+    clubId: book.clubId,
+    bookId: book._id,
+    sectionId: section._id,
+    submittedBy: by._id,
+    submittedDay,
+    raw: args.quotes,
+  });
+
+  // Ghosts hear about submissions too — they follow along, they just
+  // don't owe anything.
+  const memberIds = await clubRecipientIds(ctx, book.clubId);
+  const next = sections.find((s) => s.index === section.index + 1);
+  if (next !== undefined) {
+    // The next reader's 2 calendar days start now, in their timezone.
+    const nextReader = await ctx.db.get("users", next.assignedTo);
+    const nextDueDay = addDays(
+      todayInTz(nextReader?.timezone),
+      DAYS_PER_SECTION,
+    );
+    await ctx.db.patch("sections", next._id, { dueDay: nextDueDay });
+    const assignee = await ctx.db.get("users", section.assignedTo);
+    await notifySectionSubmitted(ctx, {
+      book,
+      sectionTitle: section.title,
+      by,
+      assigneeName: assignee?.name ?? "the assignee",
+      skip: args.isSkip,
+      early: args.draftedAt !== undefined,
+      thoughts: args.thoughts,
+      memberIds,
+      // "You're up" would be a lie if the next reader already wrote theirs:
+      // their draft releases a moment from now, so they hear the ordinary
+      // submission news instead.
+      next: hasLiveDraft(next)
+        ? null
+        : {
+            assigneeId: next.assignedTo,
+            title: next.title,
+            dueDay: nextDueDay,
+          },
+    });
+  } else {
+    await finishBook(ctx, book);
+    const finished = await ctx.db.get("books", book._id);
+    const loserNames = await Promise.all(
+      (finished?.result?.loserIds ?? []).map(async (id) => {
+        const u = await ctx.db.get("users", id);
+        return u?.name ?? "?";
+      }),
+    );
+    await notifyBookFinished(ctx, {
+      book,
+      memberIds,
+      byId: by._id,
+      loserNames,
+    });
+  }
+}
+
+/** A draft that is still the assignee's own, and so still releasable. */
+function hasLiveDraft(section: Doc<"sections">): boolean {
+  return (
+    section.draft !== undefined && section.draft.by === section.assignedTo
+  );
+}
+
+/**
+ * Post any write-ups that were prepared in advance and have now come up.
+ * Called the instant a section lands — so a pre-written next section goes
+ * out behind it, and a whole chain of them unspools in one go — and again
+ * from the hourly cron as a backstop.
+ */
+export async function releaseDrafts(
+  ctx: MutationCtx,
+  bookId: Id<"books">,
+): Promise<void> {
+  // Each lap lands one section, so the book itself bounds the chain.
+  for (let lap = 0; ; lap++) {
+    const book = await ctx.db.get("books", bookId);
+    if (book === null || book.status !== "active") {
+      return;
+    }
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
+    const sections = await ctx.db
+      .query("sections")
+      .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
+      .collect();
+    sections.sort((a, b) => a.index - b.index);
+    if (lap > sections.length) {
+      return; // can't happen; a guard against ever looping forever
+    }
+    const current = sections.find((s) => s.submission === undefined);
+    if (current === undefined || current.draft === undefined) {
+      return;
+    }
+    const draft = current.draft;
+    const by = await ctx.db.get("users", draft.by);
+    // The rotation is fixed at the book's start, so a draft can only fall
+    // out of step with its section if its author left. Drop it rather than
+    // post it under someone else's turn.
+    if (by === null || !hasLiveDraft(current)) {
+      await ctx.db.patch("sections", current._id, { draft: undefined });
+      return;
+    }
+    // Normally nothing: the draft releases the moment the section comes up,
+    // before a due day has had a chance to lapse. The cron backstop can
+    // find one that has been sitting, and that lateness is real.
+    await accrueLateClouds(ctx, book, current, todayInTz(by.timezone));
+    await recordSubmission(ctx, {
+      book,
+      sections,
+      section: current,
+      by,
+      quotes: draft.quotes,
+      thoughts: draft.thoughts,
+      isSkip: false,
+      draftedAt: draft.at,
+      at: Date.now() + lap + 1,
+    });
+  }
+}
+
+/**
  * Submit quotes + thoughts for the current section. Two cases:
  *  - it's your section: always allowed (late days are billed by the cron);
  *  - it's someone else's *overdue* section and you're next in line: a
@@ -190,71 +359,113 @@ export const submitSection = mutation({
       });
     }
 
-    const submittedDay = todayInTz(user.timezone);
-    await ctx.db.patch("sections", section._id, {
-      submission: {
-        by: user._id,
-        day: submittedDay,
-        at: Date.now(),
-        quotes: args.quotes,
-        thoughts: args.thoughts,
-        skip: isSkip,
-      },
+    await recordSubmission(ctx, {
+      book,
+      sections,
+      section,
+      by: user,
+      quotes: args.quotes,
+      thoughts: args.thoughts,
+      isSkip,
     });
-    // Feed the lines into the club's quote deck, where they'll surface as a
-    // quote of the day some random morning from here on.
-    await indexSectionQuotes(ctx, {
-      clubId: book.clubId,
-      bookId: book._id,
-      sectionId: section._id,
-      submittedBy: user._id,
-      submittedDay,
-      raw: args.quotes,
-    });
+    // Whoever is up next may have written theirs already.
+    await releaseDrafts(ctx, book._id);
+    return null;
+  },
+});
 
-    // Ghosts hear about submissions too — they follow along, they just
-    // don't owe anything.
-    const memberIds = await clubRecipientIds(ctx, book.clubId);
-    const next = sections.find((s) => s.index === section.index + 1);
-    if (next !== undefined) {
-      // The next reader's 2 calendar days start now, in their timezone.
-      const nextReader = await ctx.db.get("users", next.assignedTo);
-      const nextDueDay = addDays(
-        todayInTz(nextReader?.timezone),
-        DAYS_PER_SECTION,
-      );
-      await ctx.db.patch("sections", next._id, { dueDay: nextDueDay });
-      await notifySectionSubmitted(ctx, {
-        book,
-        sectionTitle: section.title,
-        by: user,
-        assigneeName:
-          assignee?.name ?? "the assignee",
-        skip: isSkip,
-        thoughts: args.thoughts,
-        memberIds,
-        next: {
-          assigneeId: next.assignedTo,
-          title: next.title,
-          dueDay: nextDueDay,
-        },
-      });
-    } else {
-      await finishBook(ctx, book);
-      const finished = await ctx.db.get("books", book._id);
-      const loserNames = await Promise.all(
-        (finished?.result?.loserIds ?? []).map(async (id) => {
-          const u = await ctx.db.get("users", id);
-          return u?.name ?? "?";
-        }),
-      );
-      await notifyBookFinished(ctx, {
-        book,
-        memberIds,
-        byId: user._id,
-        loserNames,
-      });
+/**
+ * Write up one of your own sections before its turn comes round. The draft
+ * sits on the section until the book reaches it, then posts itself — so a
+ * member who reads ahead, or who'll be off the grid when they're up, can
+ * bank the write-up now.
+ *
+ * Saving over an existing draft replaces it. If the section turns out to be
+ * current already — you read ahead and the book caught up, or the previous
+ * reader landed theirs while you were typing — there's nothing to wait for,
+ * so it submits on the spot and says so.
+ */
+export const saveDraft = mutation({
+  args: {
+    sectionId: v.id("sections"),
+    quotes: v.string(),
+    thoughts: v.string(),
+  },
+  returns: v.union(v.literal("saved"), v.literal("submitted")),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const section = await ctx.db.get("sections", args.sectionId);
+    if (section === null) {
+      throw new ConvexError("Section not found.");
     }
+    const book = await ctx.db.get("books", section.bookId);
+    if (book === null || book.status !== "active") {
+      throw new ConvexError("This book isn't being read right now.");
+    }
+    await requireMembership(ctx, book.clubId);
+    if (section.submission !== undefined) {
+      throw new ConvexError("This section has already been written up.");
+    }
+    if (section.assignedTo !== user._id) {
+      throw new ConvexError("You can only write ahead on your own sections.");
+    }
+    const quotes = args.quotes.trim();
+    const thoughts = args.thoughts.trim();
+    if (quotes.length === 0 && thoughts.length === 0) {
+      throw new ConvexError("Leave something for the club to read.");
+    }
+
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
+    const sections = await ctx.db
+      .query("sections")
+      .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
+      .collect();
+    sections.sort((a, b) => a.index - b.index);
+    const current = sections.find((s) => s.submission === undefined);
+    if (current !== undefined && current._id === section._id) {
+      await accrueLateClouds(ctx, book, section, todayInTz(user.timezone));
+      await recordSubmission(ctx, {
+        book,
+        sections,
+        section,
+        by: user,
+        quotes,
+        thoughts,
+        isSkip: false,
+      });
+      await releaseDrafts(ctx, book._id);
+      return "submitted";
+    }
+
+    await ctx.db.patch("sections", section._id, {
+      draft: { by: user._id, at: Date.now(), quotes, thoughts },
+    });
+    return "saved";
+  },
+});
+
+/** Take back a write-up you'd banked, so nothing posts on your behalf. */
+export const discardDraft = mutation({
+  args: { sectionId: v.id("sections") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const section = await ctx.db.get("sections", args.sectionId);
+    if (section === null) {
+      throw new ConvexError("Section not found.");
+    }
+    const book = await ctx.db.get("books", section.bookId);
+    if (book === null) {
+      throw new ConvexError("Book not found.");
+    }
+    await requireMembership(ctx, book.clubId);
+    if (section.draft === undefined) {
+      return null; // already gone — nothing to take back
+    }
+    if (section.draft.by !== user._id) {
+      throw new ConvexError("That draft isn't yours.");
+    }
+    await ctx.db.patch("sections", section._id, { draft: undefined });
     return null;
   },
 });
@@ -387,6 +598,17 @@ export const detail = query({
         submission: s.submission
           ? { ...s.submission, byName: names.get(s.submission.by) ?? "?" }
           : null,
+        // That a section is written ahead is club news — no spoilers in it.
+        // The words themselves stay with whoever wrote them until it posts.
+        draft:
+          s.draft === undefined
+            ? null
+            : {
+                at: s.draft.at,
+                mine: s.draft.by === viewer._id,
+                quotes: s.draft.by === viewer._id ? s.draft.quotes : null,
+                thoughts: s.draft.by === viewer._id ? s.draft.thoughts : null,
+              },
       })),
       standings: tallies
         .map((t) => ({ ...t, name: names.get(t.userId) ?? "?" }))

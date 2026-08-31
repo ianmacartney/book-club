@@ -122,6 +122,9 @@ export type FeedEvent =
       sectionTitle: string;
       assigneeName: string;
       skip: boolean;
+      // Banked before their turn and released on the day — which is why it
+      // can land while its author is nowhere near a phone.
+      early: boolean;
       quotes: string;
       thoughts: string;
       isLastSection: boolean;
@@ -360,6 +363,7 @@ export const forClub = query({
           sectionTitle: s.title,
           assigneeName: await nameOf(ctx, names, s.assignedTo),
           skip: sub.skip,
+          early: sub.draftedAt !== undefined,
           quotes: sub.quotes,
           thoughts: sub.thoughts,
           isLastSection: s.index === lastIndex,
