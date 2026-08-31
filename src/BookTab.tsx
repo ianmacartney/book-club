@@ -102,6 +102,8 @@ export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }
                         ? `due ${prettyDay(s.dueDay)}`
                         : "up now"}
                   </Pill>
+                ) : s.draft ? (
+                  <Pill tone="ok">written ahead ✍️</Pill>
                 ) : (
                   <Pill>upcoming</Pill>
                 )}
@@ -117,6 +119,9 @@ export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }
                   current={current!}
                   viewerId={props.viewerId}
                 />
+              )}
+              {!isCurrent && !s.submission && (
+                <DraftForm section={s} viewerId={props.viewerId} />
               )}
             </Card>
           );
@@ -146,7 +151,14 @@ export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }
 }
 
 function Submission(props: {
-  submission: { byName: string; day: string; quotes: string; thoughts: string; skip: boolean };
+  submission: {
+    byName: string;
+    day: string;
+    quotes: string;
+    thoughts: string;
+    skip: boolean;
+    draftedAt?: number;
+  };
 }) {
   const [open, setOpen] = useState(false);
   const s = props.submission;
@@ -158,6 +170,7 @@ function Submission(props: {
       >
         {open ? "Hide" : "Read"} {s.byName}'s notes ({prettyDay(s.day)})
         {s.skip && " — covered for the assignee"}
+        {s.draftedAt !== undefined && " — written ahead"}
       </button>
       {open && (
         <div className="mt-2 space-y-2 rounded-xl bg-paper p-3 text-sm">
@@ -238,6 +251,130 @@ function SectionForm(props: {
       <Button type="submit">
         {mine ? "Submit my section" : "Submit for them (skip)"}
       </Button>
+    </form>
+  );
+}
+
+/**
+ * Bank a write-up for one of your own sections before its turn comes round.
+ * Nothing posts now — the draft sits on the section and releases itself the
+ * moment the book reaches it, whether you're at your phone or not.
+ */
+function DraftForm(props: {
+  section: {
+    _id: Id<"sections">;
+    title: string;
+    assignedTo: Id<"users">;
+    draft: { at: number; mine: boolean; quotes: string | null; thoughts: string | null } | null;
+  };
+  viewerId: Id<"users">;
+}) {
+  const saveDraft = useMutation(api.books.saveDraft);
+  const discardDraft = useMutation(api.books.discardDraft);
+  const draft = props.section.draft;
+  const [open, setOpen] = useState(false);
+  const [quotes, setQuotes] = useState(draft?.quotes ?? "");
+  const [thoughts, setThoughts] = useState(draft?.thoughts ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  if (props.section.assignedTo !== props.viewerId) {
+    // Someone else's turn ahead. Whether they've written it is on the pill;
+    // the words themselves keep until it posts.
+    return null;
+  }
+
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <button
+          className="text-sm font-semibold text-accent hover:underline"
+          onClick={() => {
+            setQuotes(draft?.quotes ?? "");
+            setThoughts(draft?.thoughts ?? "");
+            setNote(null);
+            setOpen(true);
+          }}
+        >
+          {draft ? "Edit your banked write-up ✍️" : "Write it ahead of time ✍️"}
+        </button>
+        {note && <p className="mt-1 text-sm text-emerald-700">{note}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="mt-3 space-y-3 border-t border-ink/10 pt-3"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError(null);
+        try {
+          const result = await saveDraft({
+            sectionId: props.section._id,
+            quotes,
+            thoughts,
+          });
+          setOpen(false);
+          setNote(
+            result === "submitted"
+              ? "You were up already — it posted to the club."
+              : "Banked. It posts the moment your turn comes round.",
+          );
+        } catch (err) {
+          setError(errorMessage(err));
+        }
+      }}
+    >
+      <p className="rounded-xl bg-paper p-3 text-sm text-ink/70">
+        Nothing goes out now. When “{props.section.title}” comes up in the
+        rotation this posts itself, on time, without you.
+      </p>
+      <Field label="Quotes">
+        <textarea
+          className={inputClass}
+          rows={3}
+          value={quotes}
+          onChange={(e) => setQuotes(e.target.value)}
+          placeholder="Lines worth keeping…"
+        />
+      </Field>
+      <Field label="Thoughts">
+        <textarea
+          className={inputClass}
+          rows={4}
+          value={thoughts}
+          onChange={(e) => setThoughts(e.target.value)}
+          placeholder="What did you make of it?"
+        />
+      </Field>
+      <ErrorNote error={error} />
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit">{draft ? "Update draft" : "Bank it"}</Button>
+        <Button variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+        {draft && (
+          <Button
+            variant="danger"
+            onClick={async () => {
+              if (!confirm("Throw away the write-up you'd banked?")) return;
+              setError(null);
+              try {
+                await discardDraft({ sectionId: props.section._id });
+                setQuotes("");
+                setThoughts("");
+                setOpen(false);
+                setNote(null);
+              } catch (err) {
+                setError(errorMessage(err));
+              }
+            }}
+          >
+            Discard
+          </Button>
+        )}
+      </div>
     </form>
   );
 }
