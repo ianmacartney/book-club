@@ -296,6 +296,14 @@ export function useActions(): {
   checkIn: (status: "star" | "storm") => Promise<boolean>;
   undoCheckIn: () => Promise<void>;
   submitSection: (sectionId: string, quotes: string, thoughts: string) => void;
+  // Bank a write-up for a section that hasn't come up yet. Resolves to what
+  // actually happened: "submitted" when the book had already reached it.
+  saveDraft: (
+    sectionId: string,
+    quotes: string,
+    thoughts: string,
+  ) => Promise<"saved" | "submitted" | null>;
+  discardDraft: (sectionId: string) => Promise<void>;
   postReply: (sectionId: string, body: string) => Promise<boolean>;
   updateSettings: (patch: {
     reminderTime?: string | null;
@@ -326,6 +334,8 @@ export function useActions(): {
   const checkIn = useMutation(api.pushups.submit);
   const undoCheckIn = useMutation(api.pushups.undo);
   const submitSection = useMutation(api.books.submitSection);
+  const saveDraft = useMutation(api.books.saveDraft);
+  const discardDraft = useMutation(api.books.discardDraft);
   const postReply = useMutation(api.replies.post);
   const updateSettings = useMutation(api.notifications.updateSettings);
   const registerPushToken = useMutation(api.notifications.registerPushToken);
@@ -358,6 +368,23 @@ export function useActions(): {
         quotes,
         thoughts,
       }).catch(alertError);
+    },
+    saveDraft: async (sectionId, quotes, thoughts) => {
+      try {
+        return await saveDraft({
+          sectionId: sectionId as Id<"sections">,
+          quotes,
+          thoughts,
+        });
+      } catch (err) {
+        alertError(err);
+        return null;
+      }
+    },
+    discardDraft: async (sectionId) => {
+      await discardDraft({ sectionId: sectionId as Id<"sections"> }).catch(
+        alertError,
+      );
     },
     // Reports success so the composer can hand a rejected draft back to the
     // writer instead of swallowing it.

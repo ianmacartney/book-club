@@ -78,6 +78,8 @@ export type FeedEvent =
       sectionTitle: string;
       assigneeName: string;
       skip: boolean;
+      // Written ahead of the turn and released automatically.
+      early: boolean;
       quotes: string;
       thoughts: string;
       isLastSection: boolean;
@@ -138,6 +140,18 @@ export type Section = {
     quotes: string;
     thoughts: string;
     skip: boolean;
+    // Set when it was banked in advance and released on its turn.
+    draftedAt?: number;
+  } | null;
+  /**
+   * A write-up banked before this section came up. Everyone sees that one
+   * exists; only its author gets the words back (`mine`), the rest are null.
+   */
+  draft: {
+    at: number;
+    mine: boolean;
+    quotes: string | null;
+    thoughts: string | null;
   } | null;
 };
 

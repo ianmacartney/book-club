@@ -182,7 +182,9 @@ function EventItem(props: {
             <Text style={styles.entryName}>
               {event.name}
               <Text style={styles.entryMeta}>
-                {"  "}finished “{event.sectionTitle}”
+                {"  "}
+                {event.early ? "had" : "finished"} “{event.sectionTitle}”
+                {event.early ? " ready and waiting" : ""}
                 {event.skip ? ` for ${event.assigneeName} ⛈️⛈️` : ""}
               </Text>
             </Text>

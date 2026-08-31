@@ -1,10 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useBook } from "../data";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useActions, useBook } from "../data";
 import { prettyDay } from "../lib";
 import { colors, radius, serif, space } from "../theme";
-import { Avatar, Muted, Pill } from "../ui";
+import type { Section } from "../types";
+import { Avatar, Btn, Muted, Pill } from "../ui";
 
 /**
  * The organized view of a book: jacket header, the club's storm-cloud
@@ -15,10 +27,15 @@ import { Avatar, Muted, Pill } from "../ui";
  * With no `bookId` it follows the club's active book (the Book tab). Given a
  * `bookId` + `onBack` it becomes a past book's page, opened from the Library —
  * the same layout, read-only, showing the frozen final standings.
+ *
+ * Your own turns further down the rotation are tappable: write the section
+ * up now and it posts itself the day the book reaches you.
  */
 export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
   const detail = useBook(props.bookId);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // The section whose write-ahead sheet is up, if any.
+  const [drafting, setDrafting] = useState<string | null>(null);
   const toggle = (id: string) =>
     setOpen((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -43,6 +60,7 @@ export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
 
   const { book, sections, current, standings } = detail;
   const done = sections.filter((s) => s.submission !== null).length;
+  const draftSection = sections.find((s) => s._id === drafting);
   const isActive = book.status === "active";
   const eyebrow = isActive
     ? "Now reading"
@@ -125,10 +143,18 @@ export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
           const late = isCurrent ? (current?.daysLate ?? 0) : 0;
           const sub = s.submission;
           const isOpen = sub !== null && open[s._id];
+          // A turn of yours still over the horizon: you can write it now.
+          const canWriteAhead =
+            isActive &&
+            sub === null &&
+            !isCurrent &&
+            s.assignedTo === detail.viewerId;
           const meta = sub
             ? sub.skip
               ? ` · covered by ${sub.byName} ⛈️⛈️`
-              : ` · ${prettyDay(sub.day)}`
+              : ` · ${prettyDay(sub.day)}${
+                  sub.draftedAt !== undefined ? " · written ahead" : ""
+                }`
             : s.dueDay
               ? ` · due ${prettyDay(s.dueDay)}`
               : "";
@@ -164,18 +190,28 @@ export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
                   size={16}
                   color={colors.inkFaint}
                 />
+              ) : s.draft !== null ? (
+                <Pill tone="ok">ready ✍️</Pill>
+              ) : canWriteAhead ? (
+                <Text style={styles.writeAhead}>write ahead</Text>
               ) : null}
             </>
           );
+          const onPress =
+            sub !== null
+              ? () => toggle(s._id)
+              : canWriteAhead
+                ? () => setDrafting(s._id)
+                : null;
           return (
             <View
               key={s._id}
               style={i < sections.length - 1 && styles.rowBorder}
             >
-              {sub !== null ? (
+              {onPress !== null ? (
                 <Pressable
                   style={[styles.row, isCurrent && styles.rowCurrent]}
-                  onPress={() => toggle(s._id)}
+                  onPress={onPress}
                 >
                   {rowInner}
                 </Pressable>
@@ -204,7 +240,122 @@ export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
           );
         })}
       </View>
+
+      {draftSection !== undefined && (
+        // Keyed on the section so each opening starts from what's banked.
+        <DraftSheet
+          key={draftSection._id}
+          section={draftSection}
+          bookTitle={book.title}
+          onClose={() => setDrafting(null)}
+        />
+      )}
     </ScrollView>
+  );
+}
+
+/**
+ * Write up one of your later turns now. Nothing posts on save — the draft
+ * waits on the section and releases itself the moment the rotation reaches
+ * it, so a stretch away from signal costs the club nothing.
+ */
+function DraftSheet(props: {
+  section: Section;
+  bookTitle: string;
+  onClose: () => void;
+}) {
+  const { saveDraft, discardDraft } = useActions();
+  const draft = props.section.draft;
+  const [quotes, setQuotes] = useState(draft?.quotes ?? "");
+  const [thoughts, setThoughts] = useState(draft?.thoughts ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const empty = quotes.trim().length === 0 && thoughts.trim().length === 0;
+
+  const save = async () => {
+    setSaving(true);
+    const result = await saveDraft(
+      props.section._id,
+      quotes.trim(),
+      thoughts.trim(),
+    );
+    setSaving(false);
+    if (result === null) {
+      return; // the mutation already said why
+    }
+    props.onClose();
+    if (result === "submitted") {
+      Alert.alert(
+        "Posted",
+        "Your turn had already come round, so this went straight to the club.",
+      );
+    }
+  };
+
+  const discard = () => {
+    Alert.alert("Throw it away?", "The write-up you banked won't post.", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Discard",
+        style: "destructive",
+        onPress: () => {
+          void discardDraft(props.section._id).then(props.onClose);
+        },
+      },
+    ]);
+  };
+
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={props.onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.modal}
+      >
+        <View style={styles.modalHeader}>
+          <Pressable onPress={props.onClose}>
+            <Text style={styles.modalCancel}>Cancel</Text>
+          </Pressable>
+          <Text style={styles.modalTitle}>“{props.section.title}”</Text>
+          <View style={{ width: 50 }} />
+        </View>
+        <Muted style={styles.centered}>{props.bookTitle}</Muted>
+        <Muted style={styles.centered}>
+          Nothing goes out now. This posts itself the day your turn comes
+          round.
+        </Muted>
+        <Text style={styles.fieldLabel}>Quotes</Text>
+        <TextInput
+          style={[styles.input, styles.inputQuotes]}
+          multiline
+          placeholder="Lines worth keeping…"
+          placeholderTextColor={colors.inkFaint}
+          value={quotes}
+          onChangeText={setQuotes}
+        />
+        <Text style={styles.fieldLabel}>Thoughts</Text>
+        <TextInput
+          style={[styles.input, styles.inputThoughts]}
+          multiline
+          placeholder="What did you make of it?"
+          placeholderTextColor={colors.inkFaint}
+          value={thoughts}
+          onChangeText={setThoughts}
+        />
+        <Btn disabled={empty || saving} onPress={() => void save()}>
+          {draft ? "Update the draft" : "Bank it"}
+        </Btn>
+        {draft && (
+          <Btn variant="ghost" onPress={discard}>
+            Discard
+          </Btn>
+        )}
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -310,4 +461,37 @@ const styles = StyleSheet.create({
   },
   thoughtsText: { fontSize: 14, lineHeight: 20, color: colors.ink },
   centered: { textAlign: "center" },
+  writeAhead: { fontSize: 12, fontWeight: "600", color: colors.accent },
+  modal: {
+    flex: 1,
+    backgroundColor: colors.paper,
+    padding: space(4),
+    gap: space(2),
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: space(1),
+  },
+  modalCancel: { fontSize: 15, color: colors.accent, width: 50 },
+  modalTitle: { fontFamily: serif, fontSize: 17, color: colors.ink },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: colors.inkSoft,
+    marginTop: space(2),
+  },
+  input: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    paddingVertical: space(2),
+    fontSize: 15,
+    color: colors.ink,
+    textAlignVertical: "top",
+  },
+  inputQuotes: { minHeight: 70, fontFamily: serif, fontStyle: "italic" },
+  inputThoughts: { minHeight: 110 },
 });
