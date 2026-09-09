@@ -17,6 +17,7 @@ import { api } from "../convex/_generated/api";
 import { convex, deviceTimezone, secureStorage } from "./src/convex";
 import { ClubProvider, useToday } from "./src/data";
 import { currentPushTokenIfPermitted } from "./src/notifications";
+import { pushTokenRegistration } from "./src/pushTokenRegistration";
 import { AuthScreen } from "./src/screens/AuthScreen";
 import { BookScreen } from "./src/screens/BookScreen";
 import { ClubScreen } from "./src/screens/ClubScreen";
@@ -65,6 +66,7 @@ function SignedIn() {
   const clubs = useQuery(api.clubs.mine);
   const ensureTimezone = useMutation(api.users.ensureTimezone);
   const registerPushToken = useMutation(api.notifications.registerPushToken);
+  const userId = me?._id;
 
   // Deadlines live and die by the member's timezone; capture it right away.
   useEffect(() => {
@@ -73,15 +75,24 @@ function SignedIn() {
     }
   }, [me, ensureTimezone]);
 
-  // Keep the push token fresh (reinstalls rotate it). Never prompts here —
-  // the explicit ask lives in Club → Notifications.
+  // Check the current token on mount; record each user/token once per app
+  // session. Never prompts here — the explicit ask lives in Club → Notifications.
   useEffect(() => {
-    void currentPushTokenIfPermitted().then((token) => {
-      if (token !== null) {
-        registerPushToken({ token }).catch(() => {});
-      }
-    });
-  }, [registerPushToken]);
+    if (!userId) return;
+    let active = true;
+    void currentPushTokenIfPermitted()
+      .then((token) => {
+        if (active && token !== null) {
+          return pushTokenRegistration.register(userId, token, (token) => {
+            return registerPushToken({ token });
+          });
+        }
+      })
+      .catch(() => {}); // Offline token lookup/registration retries on next mount.
+    return () => {
+      active = false;
+    };
+  }, [userId, registerPushToken]);
 
   if (me === undefined || clubs === undefined) {
     return <Splash />;

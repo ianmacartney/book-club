@@ -29,6 +29,7 @@ import {
   statusGlyph,
 } from "../lib";
 import { registerForPushNotifications } from "../notifications";
+import { pushTokenRegistration } from "../pushTokenRegistration";
 import { colors, radius, serif, space } from "../theme";
 import type { OffGridPeriod } from "../types";
 import { Avatar, Btn, Muted, Pill } from "../ui";
@@ -682,7 +683,10 @@ function SignOut() {
           {
             text: "Sign out",
             style: "destructive",
-            onPress: () => void signOut(),
+            onPress: () => {
+              pushTokenRegistration.clear();
+              void signOut();
+            },
           },
         ])
       }

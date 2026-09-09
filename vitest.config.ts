@@ -1,11 +1,11 @@
 import { defineConfig } from "vitest/config";
 
-// Backend tests only — the Convex functions run against convex-test's
-// in-memory backend, which wants the edge runtime rather than jsdom.
+// Convex functions run in an in-memory backend; mobile utility tests are pure
+// TypeScript and can share its edge runtime without native Expo dependencies.
 export default defineConfig({
   test: {
     environment: "edge-runtime",
-    include: ["convex/**/*.test.ts"],
+    include: ["convex/**/*.test.ts", "mobile/src/**/*.test.ts"],
     server: { deps: { inline: ["convex-test"] } },
   },
 });
