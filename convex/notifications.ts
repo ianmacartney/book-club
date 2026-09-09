@@ -1,6 +1,6 @@
 import { PushNotifications } from "@convex-dev/expo-push-notifications";
-import { ConvexError, v } from "convex/values";
-import { components } from "./_generated/api";
+import { ConvexError, v, type Infer } from "convex/values";
+import { components, internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import {
   MutationCtx,
@@ -145,26 +145,52 @@ export const updateSettings = mutation({
 // Send helpers (called from other mutations — never throw at callers)
 // ---------------------------------------------------------------------------
 
-type Send = {
-  userId: Id<"users">;
-  notification: { title: string; body?: string; sound?: string; data?: any };
-};
+const sendValidator = v.object({
+  userId: v.id("users"),
+  notification: v.object({
+    title: v.string(),
+    body: v.optional(v.string()),
+    sound: v.optional(v.string()),
+    data: v.optional(v.any()),
+  }),
+});
+type Send = Infer<typeof sendValidator>;
 
 async function sendBatch(ctx: MutationCtx, sends: Send[]): Promise<void> {
   if (sends.length === 0) {
     return;
   }
-  // Sending must never break the mutation it rides along with (check-ins and
-  // section submissions are the club's real bookkeeping).
+  // Commit the submission before touching the push component. Delivery runs
+  // in its own transaction, so a notification failure cannot roll it back.
   try {
-    await push.sendPushNotificationBatch(ctx, {
-      notifications: sends,
-      allowUnregisteredTokens: true,
-    });
+    await ctx.scheduler.runAfter(0, internal.notifications.deliverBatch, { sends });
   } catch (err) {
-    console.error("push notification batch failed", err);
+    console.error("could not schedule push notification batch", err);
   }
 }
+
+export const deliverBatch = internalMutation({
+  args: { sends: v.array(sendValidator) },
+  returns: v.null(),
+  handler: async (ctx, { sends }) => {
+    const registered: Send[] = [];
+    for (const send of sends) {
+      const status = await push.getStatusForUser(ctx, { userId: send.userId });
+      if (status.hasToken && !status.paused) {
+        registered.push(send);
+      }
+    }
+    // Missing tokens are normal for web users and members who declined push.
+    // The component logs them as ERROR even with allowUnregisteredTokens set.
+    if (registered.length > 0) {
+      await push.sendPushNotificationBatch(ctx, {
+        notifications: registered,
+        allowUnregisteredTokens: true,
+      });
+    }
+    return null;
+  },
+});
 
 /**
  * Expo caps a push message at 4 KiB total, so give the summary most of the
