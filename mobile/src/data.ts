@@ -295,7 +295,11 @@ export function useFeed(): {
 export function useActions(): {
   checkIn: (status: "star" | "storm") => Promise<boolean>;
   undoCheckIn: () => Promise<void>;
-  submitSection: (sectionId: string, quotes: string, thoughts: string) => void;
+  submitSection: (
+    sectionId: string,
+    quotes: string,
+    thoughts: string,
+  ) => Promise<boolean>;
   // Bank a write-up for a section that hasn't come up yet. Resolves to what
   // actually happened: "submitted" when the book had already reached it.
   saveDraft: (
@@ -363,12 +367,18 @@ export function useActions(): {
     undoCheckIn: async () => {
       await undoCheckIn().catch(alertError);
     },
-    submitSection: (sectionId, quotes, thoughts) => {
-      submitSection({
-        sectionId: sectionId as Id<"sections">,
-        quotes,
-        thoughts,
-      }).catch(alertError);
+    submitSection: async (sectionId, quotes, thoughts) => {
+      try {
+        await submitSection({
+          sectionId: sectionId as Id<"sections">,
+          quotes,
+          thoughts,
+        });
+        return true;
+      } catch (err) {
+        alertError(err);
+        return false;
+      }
     },
     saveDraft: async (sectionId, quotes, thoughts) => {
       try {

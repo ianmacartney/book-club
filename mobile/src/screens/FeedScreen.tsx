@@ -22,6 +22,11 @@ import { colors, radius, serif, space } from "../theme";
 import { Btn, Muted, Rule } from "../ui";
 import { Avatar } from "../ui";
 import type { FeedEvent, FeedReply } from "../types";
+import {
+  clearSubmissionDraft,
+  readSubmissionDraft,
+  saveSubmissionDraft,
+} from "../submissionDrafts";
 
 /**
  * The club as it actually lives: a feed. Stars and storms roll in as light
@@ -505,6 +510,8 @@ function Composer() {
       <QuoteCard />
       {currentSection && (
         <SubmitModal
+          key={`${home.viewerId}:${currentSection._id}`}
+          viewerId={home.viewerId}
           visible={writing}
           onClose={() => setWriting(false)}
           sectionId={currentSection._id}
@@ -603,6 +610,7 @@ function QuoteCard(props: { wrap?: boolean }) {
 }
 
 function SubmitModal(props: {
+  viewerId: string;
   visible: boolean;
   onClose: () => void;
   sectionId: string;
@@ -611,22 +619,48 @@ function SubmitModal(props: {
   skipFor: string | null;
 }) {
   const { submitSection } = useActions();
-  const [quotes, setQuotes] = useState("");
-  const [thoughts, setThoughts] = useState("");
+  const draftKey = `${props.viewerId}:${props.sectionId}`;
+  const [draft, setDraft] = useState(() => readSubmissionDraft(draftKey));
+  const { quotes, thoughts } = draft;
+  const editDraft = (patch: Partial<typeof draft>) => {
+    const next = { ...draft, ...patch };
+    saveSubmissionDraft(draftKey, next);
+    setDraft(next);
+  };
+  const [submitting, setSubmitting] = useState(false);
+  const inFlight = useRef(false);
+
+  const submit = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSubmitting(true);
+    try {
+      if (await submitSection(props.sectionId, quotes.trim(), thoughts.trim())) {
+        clearSubmissionDraft(draftKey);
+        setDraft({ quotes: "", thoughts: "" });
+        props.onClose();
+      }
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Modal
       visible={props.visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={props.onClose}
+      onRequestClose={() => {
+        if (!inFlight.current) props.onClose();
+      }}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.modal}
       >
         <View style={styles.modalHeader}>
-          <Pressable onPress={props.onClose}>
+          <Pressable disabled={submitting} onPress={props.onClose}>
             <Text style={styles.modalCancel}>Cancel</Text>
           </Pressable>
           <Text style={styles.modalTitle}>“{props.sectionTitle}”</Text>
@@ -646,7 +680,8 @@ function SubmitModal(props: {
           placeholder="Lines worth keeping…"
           placeholderTextColor={colors.inkFaint}
           value={quotes}
-          onChangeText={setQuotes}
+          onChangeText={(quotes) => editDraft({ quotes })}
+          editable={!submitting}
         />
         <Text style={styles.fieldLabel}>Thoughts</Text>
         <TextInput
@@ -655,18 +690,18 @@ function SubmitModal(props: {
           placeholder="What did you make of it?"
           placeholderTextColor={colors.inkFaint}
           value={thoughts}
-          onChangeText={setThoughts}
+          onChangeText={(thoughts) => editDraft({ thoughts })}
+          editable={!submitting}
         />
         <Btn
-          disabled={thoughts.trim().length === 0}
-          onPress={() => {
-            submitSection(props.sectionId, quotes.trim(), thoughts.trim());
-            setQuotes("");
-            setThoughts("");
-            props.onClose();
-          }}
+          disabled={submitting || thoughts.trim().length === 0}
+          onPress={() => void submit()}
         >
-          {props.skipFor ? "Submit for them (skip)" : "Submit my section"}
+          {submitting
+            ? "Submitting…"
+            : props.skipFor
+              ? "Submit for them (skip)"
+              : "Submit my section"}
         </Btn>
       </KeyboardAvoidingView>
     </Modal>
