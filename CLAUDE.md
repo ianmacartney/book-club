@@ -153,6 +153,16 @@ case-insensitive (see `memberByName` in `convex/setup.ts`).
   Sundays get one too), gated server-side on having checked in — an unearned
   client is never sent the text. Ghosts always see it; they owe no pushups,
   so they could never earn it.
+- **How a submission becomes quotes** (`splitQuotes`): a blank line always
+  separates two pulls. A bare newline only does when the text so far has
+  *finished* (no quote mark left open, ends in closing punctuation) and the
+  next line *opens* with a quote mark. That pair of conditions is load-bearing:
+  requiring the mark keeps unquoted verse whole, and requiring the finish keeps
+  a passage that runs over lines, or quotes dialogue inside itself, from being
+  cut at the inner quote. Bullets are always their own pull. Length band is
+  20–1000 chars. Until 2026-09-11 this split on *every* newline, which shattered
+  180 passages into fragments — the club spent that day looking at "and tricks
+  so deeply, you refuse to stop", line 6 of a seven-line Odyssey passage.
 - **The club can veto a quote.** 👍/👎 (`quotes:react`) aren't just an
   opinion: the moment a quote stands at more 👎 than 👍 it leaves the deck and
   the day it's showing on is dealt the next card, mid-day, for everyone. The
@@ -220,6 +230,16 @@ npx convex run setup:indexQuotes '{"clubId":"<club>","limit":200}'
 # Retire a bad quote (never comes up again; days it already ran on still show
 # it). Pass hidden:false to put it back:
 npx convex run setup:hideQuote '{"quoteId":"<quotesId>"}'
+# Re-split every submission against the current splitQuotes and reconcile the
+# deck. Reconciles rather than rebuilds: an unchanged row keeps its _id, its
+# place in the shuffle, its hidden flag and its reactions. A vetoed row's
+# hidden flag moves to whichever pull swallowed it (so a re-split can never
+# quietly un-retire something), dailyQuotes are re-pointed off deleted rows
+# (a dangling quoteId throws on quotes:react), and reactions on a vanished
+# fragment are dropped rather than remapped onto the repaired passage, where
+# a stray 👎 could trip the auto-veto. Batched; dryRun reports without writing:
+npx convex run setup:reindexQuotes '{"clubId":"<club>","dryRun":true}'
+npx convex run setup:reindexQuotes '{"clubId":"<club>","limit":100}'
 # Today's quote is a dud — hide it and deal the next card. Moves FORWARDS
 # only: the replaced card falls behind the cursor until the deck wraps.
 npx convex run setup:rerollDailyQuote '{"clubId":"<club>","day":"2026-08-07"}'

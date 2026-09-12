@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { mintDailyQuote } from "./quotes";
+import { mintDailyQuote, splitQuotes } from "./quotes";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -254,5 +254,248 @@ describe("the admin paths that share the redeal", () => {
     // Back in the deck for a future pass — the 👎 against it still stands.
     expect((await c.quote(a))?.hidden).toBe(false);
     expect((await c.dailyRow(DAY))?.quoteId).not.toBe(a);
+  });
+});
+
+// The seven-line passage the club spent 2026-09-11 looking at one line of.
+const ODYSSEY = `To outwit you
+in all your tricks, a person or a God
+would need to be an expert at deceit.
+You clever rascal! So duplicitous,
+so talented at lying! You love fiction
+and tricks so deeply, you refuse to stop
+even in your own land.`;
+
+describe("splitQuotes", () => {
+  test("a passage broken over lines stays one quote", () => {
+    expect(splitQuotes(ODYSSEY)).toEqual([
+      "To outwit you in all your tricks, a person or a God would need to be " +
+        "an expert at deceit. You clever rascal! So duplicitous, so talented " +
+        "at lying! You love fiction and tricks so deeply, you refuse to stop " +
+        "even in your own land.",
+    ]);
+  });
+
+  test("a blank line always separates two pulls", () => {
+    const raw = `The first line of one quote, long enough to keep.\n\nA second quote, also comfortably long enough.`;
+    expect(splitQuotes(raw)).toHaveLength(2);
+  });
+
+  test("self-contained quoted lines are separate pulls", () => {
+    const raw = `“My father once told me that respect for the truth comes close to being the beginning of all morality.”\n“How can you be responsible for your wounded? They are their own responsibility.”`;
+    expect(splitQuotes(raw)).toHaveLength(2);
+  });
+
+  test("a quote mark left open holds the lines together", () => {
+    // Opens on the first line, closes only on the last — one passage, even
+    // though every line ends in punctuation and starts with a capital.
+    const raw = `“When he saw the three men he stepped back and a look of disbelief came over him.\n"Who the hell are you?" he said at last.\nThe man in the center stepped forward.\n"My name is Shackleton," he replied in a quiet voice.\nAgain there was silence. Some said that Sorlle turned away and wept.”`;
+    const out = splitQuotes(raw);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("My name is Shackleton");
+    expect(out[0]).toContain("turned away and wept");
+  });
+
+  test("one block can hold a wrapped pull and separate ones", () => {
+    // The trap in the middle: line 2 continues line 1, but lines 3 and 4 each
+    // open their own. Deciding for the whole block either shatters the first
+    // pull or swallows the other two — this has to be judged per break.
+    const raw = `“The wise man is like a tree that bends instead of breaking in the wind.\nThings just are the way they are, no matter how you might wish otherwise.”\n“We push ourselves harder to get rid of anxiety, but the result is more of it.”\n“As you dive into life as it really is, you begin to acquire something rarer.”`;
+    const out = splitQuotes(raw);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain("bends instead of breaking");
+    expect(out[0]).toContain("wish otherwise");
+    expect(out[1]).toContain("push ourselves harder");
+    expect(out[2]).toContain("dive into life");
+  });
+
+  test("bullets are their own pulls even when they run on", () => {
+    const raw = `- the first bulleted line, which runs on\n- and here is the second bulleted pull`;
+    const out = splitQuotes(raw);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toBe("the first bulleted line, which runs on");
+  });
+
+  test("fragments and whole essays both fall outside the band", () => {
+    expect(splitQuotes("too short")).toEqual([]);
+    expect(splitQuotes("x".repeat(1001))).toEqual([]);
+    // The ceiling is generous enough for a genuinely long pull.
+    expect(splitQuotes("x".repeat(900))).toHaveLength(1);
+  });
+});
+
+describe("reindexQuotes", () => {
+  /** A club with one submitted section whose quotes are `raw`. */
+  async function shelf(raw: string) {
+    const t = convexTest(schema, modules);
+    const seed = await t.run(async (ctx) => {
+      const ian = await ctx.db.insert("users", { name: "Ian M", timezone: TZ });
+      const clubId = await ctx.db.insert("clubs", {
+        name: "Push Up Club",
+        createdBy: ian,
+      });
+      await ctx.db.insert("memberships", { clubId, userId: ian });
+      await ctx.db.insert("checkins", { userId: ian, day: DAY, status: "star" });
+      const bookId = await ctx.db.insert("books", {
+        clubId,
+        title: "The Odyssey",
+        punishment: "karaoke",
+        status: "active",
+        rotation: [ian],
+        startedDay: DAY,
+      });
+      const sectionId = await ctx.db.insert("sections", {
+        bookId,
+        index: 0,
+        title: "Book 13",
+        assignedTo: ian,
+        submission: {
+          by: ian,
+          day: DAY,
+          at: Date.now(),
+          quotes: raw,
+          thoughts: "t",
+          skip: false,
+        },
+      });
+      return { clubId, bookId, sectionId, ian };
+    });
+    return {
+      t,
+      ...seed,
+      /** Index with the *old* line-per-quote behaviour, to repair from. */
+      seedFragments: (texts: string[]) =>
+        t.run(async (ctx) =>
+          Promise.all(
+            texts.map((text, i) =>
+              ctx.db.insert("quotes", {
+                clubId: seed.clubId,
+                text,
+                sort: (i + 1) / 10,
+                hidden: false,
+                sectionId: seed.sectionId,
+                bookId: seed.bookId,
+                submittedBy: seed.ian,
+                submittedDay: DAY,
+              }),
+            ),
+          ),
+        ),
+      reindex: (dryRun = false) =>
+        t.mutation(internal.setup.reindexQuotes, {
+          clubId: seed.clubId,
+          dryRun,
+        }),
+      deck: () =>
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- a fixture's whole table, a handful of rows
+        t.run(async (ctx) => await ctx.db.query("quotes").collect()),
+    };
+  }
+
+  const FRAGMENTS = ODYSSEY.split("\n").filter((l) => l.trim().length >= 20);
+
+  test("shattered fragments are reconciled into the one passage", async () => {
+    const s = await shelf(ODYSSEY);
+    await s.seedFragments(FRAGMENTS);
+    expect(await s.deck()).toHaveLength(FRAGMENTS.length);
+
+    const result = await s.reindex();
+
+    expect(result).toMatchObject({ added: 1, removed: FRAGMENTS.length });
+    const deck = await s.deck();
+    expect(deck).toHaveLength(1);
+    expect(deck[0].text).toContain("even in your own land");
+  });
+
+  test("a dry run reports the change without making it", async () => {
+    const s = await shelf(ODYSSEY);
+    await s.seedFragments(FRAGMENTS);
+
+    const result = await s.reindex(true);
+
+    expect(result).toMatchObject({ added: 1, removed: FRAGMENTS.length });
+    expect(await s.deck()).toHaveLength(FRAGMENTS.length);
+  });
+
+  test("a veto survives the repair rather than being un-retired", async () => {
+    const s = await shelf(ODYSSEY);
+    const ids = await s.seedFragments(FRAGMENTS);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch("quotes", ids[1], { hidden: true });
+    });
+
+    const result = await s.reindex();
+
+    expect(result.hiddenCarried).toBe(1);
+    const deck = await s.deck();
+    expect(deck).toHaveLength(1);
+    expect(deck[0].hidden).toBe(true);
+  });
+
+  test("a day dealt a fragment is re-pointed, not left dangling", async () => {
+    const s = await shelf(ODYSSEY);
+    const ids = await s.seedFragments(FRAGMENTS);
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("dailyQuotes", {
+        clubId: s.clubId,
+        day: DAY,
+        quoteId: ids[1],
+        text: FRAGMENTS[1],
+        sort: 0.2,
+      });
+      // A 👎 cast on the fragment that is about to stop existing.
+      await ctx.db.insert("quoteReactions", {
+        userId: s.ian,
+        quoteId: ids[1],
+        reaction: "down",
+      });
+    });
+
+    const result = await s.reindex();
+
+    expect(result).toMatchObject({ daysRepointed: 1, reactionsDropped: 1 });
+    const deck = await s.deck();
+    const day = await s.t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("dailyQuotes")
+          .withIndex("clubDay", (q) => q.eq("clubId", s.clubId).eq("day", DAY))
+          .unique(),
+    );
+    // Points at the repaired passage, so reacting still resolves…
+    expect(day?.quoteId).toBe(deck[0]._id);
+    // …but what the club was shown that day is untouched.
+    expect(day?.text).toBe(FRAGMENTS[1]);
+    // The 👎 was cast on a fragment that no longer exists; it does not get to
+    // ride onto the repaired passage and trip the auto-veto.
+    expect(deck[0].hidden).toBe(false);
+  });
+
+  test("rows the splitter still produces keep their place in the shuffle", async () => {
+    const raw = `“A first quote that stands entirely on its own.”\n“A second quote that also stands on its own.”`;
+    const s = await shelf(raw);
+    const ids = await s.seedFragments([
+      "“A first quote that stands entirely on its own.”",
+      "“A second quote that also stands on its own.”",
+    ]);
+
+    const result = await s.reindex();
+
+    // Nothing to do: identical rows, so they are not churned.
+    expect(result).toMatchObject({ added: 0, removed: 0, scanned: 0 });
+    const deck = await s.deck();
+    expect(deck.map((q) => q._id).sort()).toEqual([...ids].sort());
+    expect(deck.map((q) => q.sort).sort()).toEqual([0.1, 0.2]);
+  });
+
+  test("running it again is a no-op", async () => {
+    const s = await shelf(ODYSSEY);
+    await s.seedFragments(FRAGMENTS);
+    await s.reindex();
+
+    const second = await s.reindex();
+
+    expect(second).toMatchObject({ scanned: 0, added: 0, removed: 0 });
+    expect(await s.deck()).toHaveLength(1);
   });
 });

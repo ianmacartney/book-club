@@ -16,7 +16,7 @@ import {
   overlappingPeriods,
   settleOffGridDays,
 } from "./lib/offgrid";
-import { indexSectionQuotes, redealDay } from "./quotes";
+import { indexSectionQuotes, redealDay, splitQuotes } from "./quotes";
 import { checkinStatus } from "./schema";
 
 /**
@@ -670,6 +670,183 @@ export const indexQuotes = internalMutation({
  * Take a quote out of the deck for good. Hidden quotes keep their row (so the
  * days they were already shown on still resolve) but never come up again.
  */
+/**
+ * Re-split every submission's quotes against the current `splitQuotes` and
+ * reconcile the deck with the result. Written for the 2026-09-11 repair, when
+ * the splitter still broke on every newline and had shattered 180 passages
+ * into fragments — but it stays as the path for any future improvement to the
+ * heuristic.
+ *
+ * Reconciles rather than rebuilds: a row whose text the splitter still
+ * produces is left completely alone, so it keeps its `sort` (its place in the
+ * shuffle), its `hidden` flag, its reactions, and any `dailyQuotes` pointing
+ * at it. Only genuinely changed rows move.
+ *
+ * Three things are carried across a deletion rather than dropped on the floor:
+ *  - a `hidden` flag moves to whichever surviving quote swallowed the text, so
+ *    re-splitting can never quietly un-retire something the club vetoed;
+ *  - `dailyQuotes` are re-pointed at that same survivor, because a day whose
+ *    `quoteId` dangles throws on `quotes:react` (the frozen `text` is left
+ *    alone — it's what the club actually saw that day);
+ *  - reactions on a vanished fragment are deleted, *not* remapped. A 👎 was
+ *    cast on that fragment, and moving it onto the repaired passage could trip
+ *    the auto-veto and retire a good quote nobody voted against.
+ */
+export const reindexQuotes = internalMutation({
+  args: {
+    clubId: v.id("clubs"),
+    limit: v.optional(v.number()),
+    // Report what would change without writing anything.
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    kept: v.number(),
+    added: v.number(),
+    removed: v.number(),
+    hiddenCarried: v.number(),
+    daysRepointed: v.number(),
+    reactionsDropped: v.number(),
+    remaining: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 100;
+    const dryRun = args.dryRun ?? false;
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's books — dozens
+    const books = await ctx.db
+      .query("books")
+      .withIndex("clubStatus", (q) => q.eq("clubId", args.clubId))
+      .collect();
+    let scanned = 0;
+    let kept = 0;
+    let added = 0;
+    let removed = 0;
+    let hiddenCarried = 0;
+    let daysRepointed = 0;
+    let reactionsDropped = 0;
+    let remaining = 0;
+
+    for (const book of books) {
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)
+      const sections = await ctx.db
+        .query("sections")
+        .withIndex("bookIdx", (q) => q.eq("bookId", book._id))
+        .collect();
+      for (const section of sections) {
+        const submission = section.submission;
+        if (submission === undefined || submission.quotes.trim() === "") {
+          continue;
+        }
+        // eslint-disable-next-line @convex-dev/no-collect-in-query -- one section's quotes — a handful
+        const existing = await ctx.db
+          .query("quotes")
+          .withIndex("section", (q) => q.eq("sectionId", section._id))
+          .collect();
+        const want = splitQuotes(submission.quotes);
+        const haveTexts = existing.map((row) => row.text);
+        // Already agrees with the splitter: skip before spending the budget,
+        // or a re-run burns its limit on finished work and never converges.
+        const settled =
+          existing.length === want.length &&
+          want.every((text) => haveTexts.includes(text));
+        if (settled) {
+          kept += existing.length;
+          continue;
+        }
+        if (scanned >= limit) {
+          remaining++;
+          continue;
+        }
+        scanned++;
+
+        const survivors = new Map<string, Id<"quotes">>();
+        for (const row of existing) {
+          if (want.includes(row.text)) {
+            survivors.set(row.text, row._id);
+            kept++;
+          }
+        }
+        for (const text of want) {
+          if (survivors.has(text)) {
+            continue;
+          }
+          added++;
+          if (dryRun) {
+            continue;
+          }
+          survivors.set(
+            text,
+            await ctx.db.insert("quotes", {
+              clubId: args.clubId,
+              text,
+              sort: Math.random(),
+              hidden: false,
+              sectionId: section._id,
+              bookId: book._id,
+              submittedBy: submission.by,
+              submittedDay: submission.day,
+            }),
+          );
+        }
+
+        for (const row of existing) {
+          if (want.includes(row.text)) {
+            continue;
+          }
+          removed++;
+          // Whichever surviving pull swallowed this text — a merge always
+          // contains the fragments it was assembled from.
+          const heirText =
+            want.find((text) => text.includes(row.text)) ?? want[0];
+          const heir = heirText === undefined ? null : survivors.get(heirText);
+
+          if (row.hidden && heir !== null && heir !== undefined) {
+            hiddenCarried++;
+            if (!dryRun) {
+              await ctx.db.patch("quotes", heir, { hidden: true });
+            }
+          }
+          // eslint-disable-next-line @convex-dev/no-collect-in-query -- one quote's reactions — at most one per member
+          const reactions = await ctx.db
+            .query("quoteReactions")
+            .withIndex("quoteUser", (q) => q.eq("quoteId", row._id))
+            .collect();
+          reactionsDropped += reactions.length;
+          // eslint-disable-next-line @convex-dev/no-collect-in-query -- days this quote was dealt on — a handful
+          const days = await ctx.db
+            .query("dailyQuotes")
+            .withIndex("clubDay", (q) => q.eq("clubId", args.clubId))
+            .collect();
+          const dealt = days.filter((day) => day.quoteId === row._id);
+          daysRepointed += heir === null || heir === undefined ? 0 : dealt.length;
+          if (dryRun) {
+            continue;
+          }
+          for (const reaction of reactions) {
+            await ctx.db.delete("quoteReactions", reaction._id);
+          }
+          if (heir !== null && heir !== undefined) {
+            for (const day of dealt) {
+              await ctx.db.patch("dailyQuotes", day._id, { quoteId: heir });
+            }
+          }
+          await ctx.db.delete("quotes", row._id);
+        }
+      }
+    }
+    return {
+      scanned,
+      kept,
+      added,
+      removed,
+      hiddenCarried,
+      daysRepointed,
+      reactionsDropped,
+      remaining,
+    };
+  },
+});
+
 export const hideQuote = internalMutation({
   args: { quoteId: v.id("quotes"), hidden: v.optional(v.boolean()) },
   returns: v.null(),

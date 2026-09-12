@@ -17,32 +17,99 @@ import { isPushupDay, readerDay, viewerDay } from "./lib/days";
  */
 
 // Below the floor it's a fragment or a stray "..."; above the ceiling it's
-// somebody's whole paragraph of commentary, not a quote.
+// somebody's whole paragraph of commentary, not a quote. The ceiling is
+// generous because a real pull can run long — the 1984 passage on the nature
+// of perpetual war is 1.5k characters of one unbroken quote.
 const MIN_QUOTE_CHARS = 20;
-const MAX_QUOTE_CHARS = 500;
+const MAX_QUOTE_CHARS = 1000;
 
 /**
- * Pull the individual quotes out of one submission's free-text field. Members
- * separate multiple pulls with a blank line; when there isn't one, fall back
- * to single newlines. Anything outside the length band is dropped.
+ * Quote marks left hanging open at the end of `text`: curly ones by balance,
+ * straight ones by parity (the same character opens and closes).
+ */
+function unclosedQuotes(text: string): number {
+  const opened = (text.match(/“/g) ?? []).length;
+  const closed = (text.match(/”/g) ?? []).length;
+  const straight = (text.match(/"/g) ?? []).length % 2;
+  return opened - closed + straight;
+}
+
+/**
+ * Pull the individual quotes out of one submission's free-text field.
+ *
+ * A blank line always separates two pulls. A bare newline is the hard case:
+ * members use it both to separate short quotes *and* inside a single one —
+ * verse breaks, dialogue turns, a passage they pasted with its own wrapping.
+ * Splitting on every newline shattered those: the club spent 2026-09-11
+ * looking at "and tricks so deeply, you refuse to stop", which is line 6 of a
+ * seven-line passage from the Odyssey.
+ *
+ * So a newline only starts a new pull when the text reads as finished — no
+ * quote mark still hanging open, a closing punctuation mark, and a next line
+ * that opens rather than continues. Otherwise the lines are joined back into
+ * the one quote they came from. Bullets are always their own pull.
  *
  * This is a heuristic over eight years of text pasted out of iMessage, so it
  * will occasionally promote a line of commentary. That's what hiding is for —
  * curation happens as duds surface, not up front.
  */
 export function splitQuotes(raw: string): string[] {
-  const paragraphs = raw.split(/\n\s*\n/);
-  const chunks = paragraphs.length > 1 ? paragraphs : raw.split(/\n/);
-  return chunks
-    .map((chunk) =>
-      chunk
-        .trim()
-        .replace(/^[-–—•*]\s+/, "")
-        .trim(),
-    )
+  const pulls: string[] = [];
+  for (const block of raw.split(/\n\s*\n/)) {
+    const lines = block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => ({
+        bulleted: /^[-–—•*]\s+/.test(line),
+        text: line.replace(/^[-–—•*]\s+/, "").trim(),
+      }))
+      .filter((line) => line.text.length > 0);
+    if (lines.length === 0) {
+      continue;
+    }
+
+    // A bulleted block says outright where each pull starts; unbulleted lines
+    // under a bullet belong to it.
+    if (lines.some((line) => line.bulleted)) {
+      let bullet: string[] = [];
+      for (const line of lines) {
+        if (line.bulleted && bullet.length > 0) {
+          pulls.push(bullet.join(" "));
+          bullet = [];
+        }
+        bullet.push(line.text);
+      }
+      pulls.push(bullet.join(" "));
+      continue;
+    }
+
+    // An opening quote mark is what starts a new pull, and only once the one
+    // before it has finished. Both halves matter. Requiring the mark keeps
+    // unquoted verse whole — the Odyssey breaks its lines mid-sentence early
+    // and at a full stop later, so a rule that broke on "sentence ended, next
+    // line capitalised" would split it at the full stop. Requiring the finish
+    // keeps a passage that runs over several lines, or quotes dialogue inside
+    // itself, from being cut at the inner quote.
+    let buffer = [lines[0].text];
+    for (const line of lines.slice(1)) {
+      const sofar = buffer.join(" ");
+      const finished =
+        unclosedQuotes(sofar) <= 0 && /[.!?"”’'…]$/.test(sofar);
+      if (finished && /^[“"]/.test(line.text)) {
+        pulls.push(sofar);
+        buffer = [line.text];
+      } else {
+        buffer.push(line.text);
+      }
+    }
+    pulls.push(buffer.join(" "));
+  }
+  return pulls
+    .map((pull) => pull.trim())
     .filter(
-      (chunk) =>
-        chunk.length >= MIN_QUOTE_CHARS && chunk.length <= MAX_QUOTE_CHARS,
+      (pull) =>
+        pull.length >= MIN_QUOTE_CHARS && pull.length <= MAX_QUOTE_CHARS,
     );
 }
 
