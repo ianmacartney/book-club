@@ -417,7 +417,7 @@ describe("reindexQuotes", () => {
     expect(await s.deck()).toHaveLength(FRAGMENTS.length);
   });
 
-  test("a veto survives the repair rather than being un-retired", async () => {
+  test("a veto of a fragment doesn't follow the repaired passage", async () => {
     const s = await shelf(ODYSSEY);
     const ids = await s.seedFragments(FRAGMENTS);
     await s.t.run(async (ctx) => {
@@ -426,10 +426,32 @@ describe("reindexQuotes", () => {
 
     const result = await s.reindex();
 
-    expect(result.hiddenCarried).toBe(1);
+    // Nobody vetoed the Odyssey; they vetoed being shown a sixth of a
+    // sentence. The reassembled passage goes to the club unjudged.
+    expect(result.vetoesDropped).toBe(1);
     const deck = await s.deck();
     expect(deck).toHaveLength(1);
-    expect(deck[0].hidden).toBe(true);
+    expect(deck[0].hidden).toBe(false);
+  });
+
+  test("a veto of a quote the splitter still produces is left alone", async () => {
+    const raw = `“A first quote that stands entirely on its own.”\n“A second quote that also stands on its own.”`;
+    const s = await shelf(raw);
+    const ids = await s.seedFragments([
+      "“A first quote that stands entirely on its own.”",
+      "“A second quote that also stands on its own.”",
+    ]);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch("quotes", ids[0], { hidden: true });
+    });
+
+    const result = await s.reindex();
+
+    // That row is never deleted, so its verdict — a real one, on a real
+    // quote — is never up for reconsideration.
+    expect(result).toMatchObject({ vetoesDropped: 0, removed: 0 });
+    const deck = await s.deck();
+    expect(deck.find((q) => q._id === ids[0])?.hidden).toBe(true);
   });
 
   test("a day dealt a fragment is re-pointed, not left dangling", async () => {
@@ -453,7 +475,7 @@ describe("reindexQuotes", () => {
 
     const result = await s.reindex();
 
-    expect(result).toMatchObject({ daysRepointed: 1, reactionsDropped: 1 });
+    expect(result).toMatchObject({ daysRepointed: 1, dislikesDropped: 1 });
     const deck = await s.deck();
     const day = await s.t.run(
       async (ctx) =>
@@ -466,9 +488,59 @@ describe("reindexQuotes", () => {
     expect(day?.quoteId).toBe(deck[0]._id);
     // …but what the club was shown that day is untouched.
     expect(day?.text).toBe(FRAGMENTS[1]);
-    // The 👎 was cast on a fragment that no longer exists; it does not get to
-    // ride onto the repaired passage and trip the auto-veto.
+    // The 👎 went with the fragment: it does not ride onto the repaired
+    // passage and trip the auto-veto against something nobody judged.
     expect(deck[0].hidden).toBe(false);
+    const left = await s.t.run(async (ctx) =>
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- one quote's reactions in a fixture
+      ctx.db
+        .query("quoteReactions")
+        .withIndex("quoteUser", (q) => q.eq("quoteId", deck[0]._id))
+        .collect(),
+    );
+    expect(left).toEqual([]);
+  });
+
+  test("a 👍 follows the words it was cast on, once", async () => {
+    const s = await shelf(ODYSSEY);
+    const ids = await s.seedFragments(FRAGMENTS);
+    const peter = await s.t.run(
+      async (ctx) =>
+        await ctx.db.insert("users", { name: "Peter", timezone: TZ }),
+    );
+    await s.t.run(async (ctx) => {
+      // Ian liked two fragments that end up in the same passage; Peter one.
+      for (const quoteId of [ids[1], ids[2]]) {
+        await ctx.db.insert("quoteReactions", {
+          userId: s.ian,
+          quoteId,
+          reaction: "up",
+        });
+      }
+      await ctx.db.insert("quoteReactions", {
+        userId: peter,
+        quoteId: ids[3],
+        reaction: "up",
+      });
+    });
+
+    const result = await s.reindex();
+
+    expect(result.likesMoved).toBe(3);
+    const deck = await s.deck();
+    const moved = await s.t.run(async (ctx) =>
+      // eslint-disable-next-line @convex-dev/no-collect-in-query -- one quote's reactions in a fixture
+      ctx.db
+        .query("quoteReactions")
+        .withIndex("quoteUser", (q) => q.eq("quoteId", deck[0]._id))
+        .collect(),
+    );
+    // Three likes, two members, one vote each on the passage.
+    expect(moved).toHaveLength(2);
+    expect(moved.every((r) => r.reaction === "up")).toBe(true);
+    expect(new Set(moved.map((r) => r.userId))).toEqual(
+      new Set([s.ian, peter]),
+    );
   });
 
   test("rows the splitter still produces keep their place in the shuffle", async () => {

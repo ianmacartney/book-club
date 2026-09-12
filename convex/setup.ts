@@ -682,15 +682,21 @@ export const indexQuotes = internalMutation({
  * shuffle), its `hidden` flag, its reactions, and any `dailyQuotes` pointing
  * at it. Only genuinely changed rows move.
  *
- * Three things are carried across a deletion rather than dropped on the floor:
- *  - a `hidden` flag moves to whichever surviving quote swallowed the text, so
- *    re-splitting can never quietly un-retire something the club vetoed;
+ * What happens to a deleted fragment's baggage turns on *what the club was
+ * actually reacting to*. A 👎 on a fragment was a verdict on the splitting, not
+ * on the writing — nobody vetoed "and tricks so deeply, you refuse to stop" as
+ * a line of Homer, they vetoed being shown a sixth of a sentence. So:
+ *  - a `hidden` flag on a fragment is dropped, and the repaired passage enters
+ *    the deck clean. (A veto on a row the splitter still produces is a real
+ *    verdict on a real quote; that row is never touched, so it keeps it.)
+ *  - 👎 on a fragment go with it, or the auto-veto would retire the repaired
+ *    passage the moment it was reconciled;
+ *  - 👍 move to whichever pull swallowed the text — somebody liked those words
+ *    and the words survive — deduped, since several liked fragments can land
+ *    in the same passage;
  *  - `dailyQuotes` are re-pointed at that same survivor, because a day whose
  *    `quoteId` dangles throws on `quotes:react` (the frozen `text` is left
- *    alone — it's what the club actually saw that day);
- *  - reactions on a vanished fragment are deleted, *not* remapped. A 👎 was
- *    cast on that fragment, and moving it onto the repaired passage could trip
- *    the auto-veto and retire a good quote nobody voted against.
+ *    alone — it's what the club actually saw that day).
  */
 export const reindexQuotes = internalMutation({
   args: {
@@ -704,9 +710,10 @@ export const reindexQuotes = internalMutation({
     kept: v.number(),
     added: v.number(),
     removed: v.number(),
-    hiddenCarried: v.number(),
+    vetoesDropped: v.number(),
+    likesMoved: v.number(),
+    dislikesDropped: v.number(),
     daysRepointed: v.number(),
-    reactionsDropped: v.number(),
     remaining: v.number(),
   }),
   handler: async (ctx, args) => {
@@ -721,9 +728,10 @@ export const reindexQuotes = internalMutation({
     let kept = 0;
     let added = 0;
     let removed = 0;
-    let hiddenCarried = 0;
+    let vetoesDropped = 0;
+    let likesMoved = 0;
+    let dislikesDropped = 0;
     let daysRepointed = 0;
-    let reactionsDropped = 0;
     let remaining = 0;
 
     for (const book of books) {
@@ -800,30 +808,51 @@ export const reindexQuotes = internalMutation({
             want.find((text) => text.includes(row.text)) ?? want[0];
           const heir = heirText === undefined ? null : survivors.get(heirText);
 
-          if (row.hidden && heir !== null && heir !== undefined) {
-            hiddenCarried++;
-            if (!dryRun) {
-              await ctx.db.patch("quotes", heir, { hidden: true });
-            }
+          if (row.hidden) {
+            // The veto was of the fragmentation, not of the writing. The
+            // repaired passage has never been put to the club.
+            vetoesDropped++;
           }
           // eslint-disable-next-line @convex-dev/no-collect-in-query -- one quote's reactions — at most one per member
           const reactions = await ctx.db
             .query("quoteReactions")
             .withIndex("quoteUser", (q) => q.eq("quoteId", row._id))
             .collect();
-          reactionsDropped += reactions.length;
           // eslint-disable-next-line @convex-dev/no-collect-in-query -- days this quote was dealt on — a handful
           const days = await ctx.db
             .query("dailyQuotes")
             .withIndex("clubDay", (q) => q.eq("clubId", args.clubId))
             .collect();
           const dealt = days.filter((day) => day.quoteId === row._id);
+          const heirLives = heir !== null && heir !== undefined;
+          dislikesDropped += reactions.filter((r) => r.reaction === "down").length;
+          likesMoved += heirLives
+            ? reactions.filter((r) => r.reaction === "up").length
+            : 0;
           daysRepointed += heir === null || heir === undefined ? 0 : dealt.length;
           if (dryRun) {
             continue;
           }
           for (const reaction of reactions) {
             await ctx.db.delete("quoteReactions", reaction._id);
+            if (reaction.reaction !== "up" || heir === null || heir === undefined) {
+              continue;
+            }
+            // Several liked fragments can land in the same passage, and a
+            // member gets one vote on it.
+            const already = await ctx.db
+              .query("quoteReactions")
+              .withIndex("quoteUser", (q) =>
+                q.eq("quoteId", heir).eq("userId", reaction.userId),
+              )
+              .unique();
+            if (already === null) {
+              await ctx.db.insert("quoteReactions", {
+                userId: reaction.userId,
+                quoteId: heir,
+                reaction: "up",
+              });
+            }
           }
           if (heir !== null && heir !== undefined) {
             for (const day of dealt) {
@@ -839,9 +868,10 @@ export const reindexQuotes = internalMutation({
       kept,
       added,
       removed,
-      hiddenCarried,
+      vetoesDropped,
+      likesMoved,
+      dislikesDropped,
       daysRepointed,
-      reactionsDropped,
       remaining,
     };
   },

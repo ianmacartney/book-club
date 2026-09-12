@@ -232,17 +232,21 @@ npx convex run setup:indexQuotes '{"clubId":"<club>","limit":200}'
 npx convex run setup:hideQuote '{"quoteId":"<quotesId>"}'
 # Re-split every submission against the current splitQuotes and reconcile the
 # deck. Reconciles rather than rebuilds: an unchanged row keeps its _id, its
-# place in the shuffle, its hidden flag and its reactions. A vetoed row's
-# hidden flag moves to whichever pull swallowed it (so a re-split can never
-# quietly un-retire something), dailyQuotes are re-pointed off deleted rows
-# (a dangling quoteId throws on quotes:react), and reactions on a vanished
-# fragment are dropped rather than remapped onto the repaired passage, where
-# a stray 👎 could trip the auto-veto. Batched; dryRun reports without writing:
+# place in the shuffle, its hidden flag and its reactions. What a deleted
+# fragment leaves behind turns on what the club was reacting to: a 👎 or a veto
+# on a fragment judged the splitting, not the writing, so both go with it and
+# the repaired passage enters the deck unjudged; a 👍 moves onto whichever pull
+# swallowed the text (deduped — several liked fragments can land in one
+# passage); and dailyQuotes are re-pointed, since a dangling quoteId throws on
+# quotes:react. Batched; dryRun reports without writing:
 npx convex run setup:reindexQuotes '{"clubId":"<club>","dryRun":true}'
 npx convex run setup:reindexQuotes '{"clubId":"<club>","limit":100}'
 # Today's quote is a dud — hide it and deal the next card. Moves FORWARDS
 # only: the replaced card falls behind the cursor until the deck wraps.
 npx convex run setup:rerollDailyQuote '{"clubId":"<club>","day":"2026-08-07"}'
+# Pass hide:false when the card was fine and only the *pick* was wrong — e.g.
+# straight after a reindex, where the day now points at a repaired passage
+# that hiding would retire.
 
 # Historical imports: setup:importPastBook (whole finished/abandoned book,
 # dedupes on title+startedDay), setup:importCheckins (bulk, insert-if-absent,
