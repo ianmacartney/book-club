@@ -417,6 +417,49 @@ describe("reindexQuotes", () => {
     expect(await s.deck()).toHaveLength(FRAGMENTS.length);
   });
 
+  test("a dry run reports exactly what the real run does", async () => {
+    // Written after a dry run over the club's real deck reported 0 days
+    // re-pointed and 0 likes moved, because the rows they would move *to*
+    // hadn't been inserted yet. It read as far less invasive than it was.
+    const seed = async () => {
+      const s = await shelf(ODYSSEY);
+      const ids = await s.seedFragments(FRAGMENTS);
+      await s.t.run(async (ctx) => {
+        await ctx.db.patch("quotes", ids[1], { hidden: true });
+        await ctx.db.insert("dailyQuotes", {
+          clubId: s.clubId,
+          day: DAY,
+          quoteId: ids[2],
+          text: FRAGMENTS[2],
+          sort: 0.3,
+        });
+        await ctx.db.insert("quoteReactions", {
+          userId: s.ian,
+          quoteId: ids[3],
+          reaction: "up",
+        });
+        await ctx.db.insert("quoteReactions", {
+          userId: s.ian,
+          quoteId: ids[1],
+          reaction: "down",
+        });
+      });
+      return s;
+    };
+
+    const dry = await (await seed()).reindex(true);
+    const real = await (await seed()).reindex();
+
+    expect(dry).toEqual(real);
+    // And it is actually reporting the interesting parts, not zeroes.
+    expect(real).toMatchObject({
+      daysRepointed: 1,
+      likesMoved: 1,
+      dislikesDropped: 1,
+      vetoesDropped: 1,
+    });
+  });
+
   test("a veto of a fragment doesn't follow the repaired passage", async () => {
     const s = await shelf(ODYSSEY);
     const ids = await s.seedFragments(FRAGMENTS);

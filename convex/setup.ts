@@ -806,7 +806,12 @@ export const reindexQuotes = internalMutation({
           // contains the fragments it was assembled from.
           const heirText =
             want.find((text) => text.includes(row.text)) ?? want[0];
-          const heir = heirText === undefined ? null : survivors.get(heirText);
+          // Whether an heir exists is a fact about the split; its id only
+          // exists once the insert has actually happened. A dry run has to
+          // count off the former, or it reports nothing moving and reads as
+          // far less invasive than the real thing.
+          const heirExists = heirText !== undefined;
+          const heir = heirText === undefined ? undefined : survivors.get(heirText);
 
           if (row.hidden) {
             // The veto was of the fragmentation, not of the writing. The
@@ -824,18 +829,19 @@ export const reindexQuotes = internalMutation({
             .withIndex("clubDay", (q) => q.eq("clubId", args.clubId))
             .collect();
           const dealt = days.filter((day) => day.quoteId === row._id);
-          const heirLives = heir !== null && heir !== undefined;
-          dislikesDropped += reactions.filter((r) => r.reaction === "down").length;
-          likesMoved += heirLives
+          dislikesDropped += reactions.filter(
+            (r) => r.reaction === "down",
+          ).length;
+          likesMoved += heirExists
             ? reactions.filter((r) => r.reaction === "up").length
             : 0;
-          daysRepointed += heir === null || heir === undefined ? 0 : dealt.length;
+          daysRepointed += heirExists ? dealt.length : 0;
           if (dryRun) {
             continue;
           }
           for (const reaction of reactions) {
             await ctx.db.delete("quoteReactions", reaction._id);
-            if (reaction.reaction !== "up" || heir === null || heir === undefined) {
+            if (reaction.reaction !== "up" || heir === undefined) {
               continue;
             }
             // Several liked fragments can land in the same passage, and a
@@ -854,7 +860,7 @@ export const reindexQuotes = internalMutation({
               });
             }
           }
-          if (heir !== null && heir !== undefined) {
+          if (heir !== undefined) {
             for (const day of dealt) {
               await ctx.db.patch("dailyQuotes", day._id, { quoteId: heir });
             }
