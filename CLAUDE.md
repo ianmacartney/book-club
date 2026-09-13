@@ -206,7 +206,7 @@ npx convex run setup:deleteOrphanUser '{"userId":"<usersId>"}'
 # One-shot: copy usernames from the core `accounts` table into the
 # `authUsername` component (the Convex Auth bump moved them). Until it runs on
 # a given deployment, EVERY existing member's sign-in fails USER_NOT_FOUND.
-# Idempotent; leaves account-less rows (Tucker) alone so they stay claimable:
+# Idempotent; leaves account-less rows (Tucker) alone rather than inventing one:
 npx convex run setup:backfillAuthUsernames '{}'
 
 # Change the username someone types to sign in. Refuses if another row already
@@ -253,15 +253,47 @@ npx convex run setup:rerollDailyQuote '{"clubId":"<club>","day":"2026-08-07"}'
 # never clobbers app data), setup:createGhostUser (ex-members).
 ```
 
-**Signing in claims an existing identity.** `users.createOrUpdateUser` binds a
-new account to an account-less `users` row with the same username
-(case-insensitive) instead of forking a duplicate — that's how an ex-member like
-Tucker signs in and lands on his own history, with no invite code needed (he
-already holds a ghost membership). Hijacking an active member isn't possible:
-`signUpWithPassword` rejects a username that already has an account
-(`USERNAME_TAKEN`) before the callback runs, so only account-less rows are
-reachable. Before this existed, a second sign-up forked a new identity — which
-is how a duplicate "Peter" appeared on 2026-07-29.
+**Signing up no longer claims an existing identity.** `users.createUser` just
+inserts a new `users` row. It used to bind to an account-less row with the same
+username, which is how an ex-member was meant to sign in and land on his own
+history — that logic did not survive the v2 upgrade, so **Tucker (who has never
+signed up) would fork a fresh row rather than inherit his 305 check-ins.** Until
+it's restored, rewire him by hand right after he signs up (see below). The
+guard that stopped a *duplicate* is still there: `signUpWithPassword` rejects a
+username that already resolves (`USERNAME_TAKEN`) before the callback runs.
+That guard didn't exist when a second sign-up forked the duplicate "Peter" on
+2026-07-29.
+
+**Auth v2 keys password accounts by the app user id**, not by the normalized
+username v1 used, and no migration ships with the package. Sign-in resolves
+username → userId, verifies the password (also keyed by userId), then demands
+an `accounts` row with `providerAccountId == userId`; without one it throws
+`Cannot sign in: no account for provider = "password"...`. Four of five members
+were in that state from the 2026-08-22 bump until 2026-09-12, silently — an
+existing session keeps working, so it only bites when someone next signs in.
+Repaired by appending the missing rows; `--append` matters, since
+`sessions.accountId` still points at the old rows and replacing them signs
+everyone out:
+
+```sh
+# one line per affected user; provider/providerAccountId/userId is the whole row
+echo '{"provider":"password","providerAccountId":"<usersId>","userId":"<usersId>"}' \
+  > rows.jsonl
+npx convex import --component core --table accounts --append rows.jsonl
+```
+
+The same mechanism rewires a forked identity onto an old `users` row — repoint
+`core/accounts` (`userId` *and* `providerAccountId`), `authUsername/usernames`
+(`userId`) and `authPasswordProvider/passwords` (`userId`) at the old id, then
+delete the new `users` row. The password survives, because it travels with the
+userId it's keyed by. That's the Tucker path.
+
+**Token lifetimes are set in `convex/auth.ts`**, not left at the defaults. The
+access-token TTL drives how often clients rotate their refresh token, and every
+rotation the client fails to persist is a silent, permanent sign-out (the
+replaced token is honoured for only 30s). At the 60s default that was a
+rotation a minute per device; it's now an hour. Sessions themselves last 30
+days on a *sliding* window, so inactivity is never what signs someone out.
 
 Deleting a `users` row does **not** delete the auth account pointing at it:
 component data is only reachable through the component's API and it exposes no

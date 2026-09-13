@@ -45,7 +45,7 @@ export const tallyValidator = v.object({
 });
 
 export default defineSchema({
-  // Convex Auth creates a row per account via users.createOrUpdateUser.
+  // Convex Auth creates a row per account via users.createUser.
   users: defineTable({
     username: v.optional(v.string()), //  deprecated
     name: v.string(),
