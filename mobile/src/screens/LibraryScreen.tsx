@@ -1,17 +1,25 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useShelf } from "../data";
 import { yearOf } from "../lib";
 import { colors, serif, space } from "../theme";
 import { Muted, Pill } from "../ui";
 import { BookScreen } from "./BookScreen";
+import { NextBookPoll } from "./NextBookPoll";
 
 /**
  * Every book the club has ever read, newest first, numbered from the
  * beginning of history. Tapping one opens its full page — the same Book-tab
  * view, read-only, with the frozen final standings and every section's notes.
- * Voting on the next book stays on the web app for now — the phone is for the
- * daily pulse.
+ * Nominations, voting, and the winning book's setup sit above the shelf.
  */
 export function LibraryScreen() {
   const shelf = useShelf();
@@ -32,56 +40,62 @@ export function LibraryScreen() {
   const numbered = shelf.map((b, i) => ({ ...b, number: shelf.length - i }));
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.header}>
-        <Text style={styles.title}>The Shelf</Text>
-        <Pill>{shelf.length} books</Pill>
-      </View>
-      {shelf.length === 0 && (
-        <Muted>
-          Nothing here yet — finish your first book and it takes its place in
-          history.
-        </Muted>
-      )}
-      {numbered.map((b, i) => (
-        <Pressable
-          key={b._id}
-          style={({ pressed }) => [
-            styles.book,
-            i < numbered.length - 1 && styles.bookBorder,
-            pressed && styles.bookPressed,
-          ]}
-          onPress={() => setOpenId(b._id)}
-        >
-          <View style={styles.spine} />
-          <View style={styles.bookBody}>
-            <Text style={styles.bookTitle}>
-              <Text style={styles.bookNumber}>№{b.number} </Text>
-              {b.title}
-            </Text>
-            {b.author && <Text style={styles.bookAuthor}>{b.author}</Text>}
-            <Muted>
-              {yearOf(b.startedDay)}
-              {yearOf(b.endedDay) !== yearOf(b.startedDay)
-                ? `–${yearOf(b.endedDay)}`
-                : ""}
-              {b.status === "abandoned" ? " · abandoned 🪦" : ""}
-            </Muted>
-            {b.loserNames.length > 0 && (
-              <Text style={styles.stakes}>
-                ☠️ {b.loserNames.join(" & ")}: {b.punishment}
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ marginBottom: space(6) }}>
+          <NextBookPoll />
+        </View>
+        <View style={styles.header}>
+          <Text style={styles.title}>The Shelf</Text>
+          <Pill>{shelf.length} books</Pill>
+        </View>
+        {shelf.length === 0 && (
+          <Muted>
+            Nothing here yet — finish your first book and it takes its place in
+            history.
+          </Muted>
+        )}
+        {numbered.map((b, i) => (
+          <Pressable
+            key={b._id}
+            style={({ pressed }) => [
+              styles.book,
+              i < numbered.length - 1 && styles.bookBorder,
+              pressed && styles.bookPressed,
+            ]}
+            onPress={() => setOpenId(b._id)}
+          >
+            <View style={styles.spine} />
+            <View style={styles.bookBody}>
+              <Text style={styles.bookTitle}>
+                <Text style={styles.bookNumber}>№{b.number} </Text>
+                {b.title}
               </Text>
-            )}
-          </View>
-        </Pressable>
-      ))}
-      <Muted style={styles.footer}>
-        Suggesting and voting on the next book lives on the web app for now.
-      </Muted>
-    </ScrollView>
+              {b.author && <Text style={styles.bookAuthor}>{b.author}</Text>}
+              <Muted>
+                {yearOf(b.startedDay)}
+                {yearOf(b.endedDay) !== yearOf(b.startedDay)
+                  ? `–${yearOf(b.endedDay)}`
+                  : ""}
+                {b.status === "abandoned" ? " · abandoned 🪦" : ""}
+              </Muted>
+              {b.loserNames.length > 0 && (
+                <Text style={styles.stakes}>
+                  ☠️ {b.loserNames.join(" & ")}: {b.punishment}
+                </Text>
+              )}
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

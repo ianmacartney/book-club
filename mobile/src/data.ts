@@ -45,7 +45,7 @@ export function ClubProvider(props: {
   );
 }
 
-function useClubId(): Id<"clubs"> {
+export function useClubId(): Id<"clubs"> {
   const clubId = useContext(ClubContext);
   if (clubId === undefined) {
     throw new Error("Data hooks must be used inside <ClubProvider>.");

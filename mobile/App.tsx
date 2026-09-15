@@ -154,7 +154,9 @@ function Shell(props: { clubName: string }) {
 
       <View style={styles.body}>
         {tab === "feed" && <FeedScreen />}
-        {tab === "book" && <BookScreen />}
+        {tab === "book" && (
+          <BookScreen onChooseBook={() => setTab("library")} />
+        )}
         {tab === "library" && <LibraryScreen />}
         {tab === "club" && <ClubScreen />}
       </View>

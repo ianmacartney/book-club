@@ -31,7 +31,11 @@ import { Avatar, Btn, Muted, Pill } from "../ui";
  * Your own turns further down the rotation are tappable: write the section
  * up now and it posts itself the day the book reaches you.
  */
-export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
+export function BookScreen(props: {
+  bookId?: string;
+  onBack?: () => void;
+  onChooseBook?: () => void;
+}) {
   const detail = useBook(props.bookId);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // The section whose write-ahead sheet is up, if any.
@@ -51,9 +55,14 @@ export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
       <View style={styles.loading}>
         <Text style={styles.jacketTitle}>No book on the go</Text>
         <Muted style={styles.centered}>
-          Pick the next one together on the web app — the feed will announce
-          it here.
+          Pick the next one together in the Library. The winning nominator sets
+          the sections and punishment before reading starts.
         </Muted>
+        {props.onChooseBook && (
+          <Btn onPress={props.onChooseBook} style={{ marginTop: space(4) }}>
+            Choose the next book
+          </Btn>
+        )}
       </View>
     );
   }
@@ -79,6 +88,18 @@ export function BookScreen(props: { bookId?: string; onBack?: () => void }) {
           <Ionicons name="chevron-back" size={20} color={colors.accent} />
           <Text style={styles.backText}>The Shelf</Text>
         </Pressable>
+      )}
+
+      {isActive && sections.length - done <= 3 && props.onChooseBook && (
+        <View style={{ gap: space(2), marginBottom: space(5) }}>
+          <Muted>
+            Only {sections.length - done} sections left. Time to choose the next
+            book together.
+          </Muted>
+          <Btn variant="ghost" onPress={props.onChooseBook}>
+            Next book · nominations & voting
+          </Btn>
+        </View>
       )}
 
       <View style={styles.jacket}>
