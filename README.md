@@ -19,10 +19,28 @@ Tailwind CSS 4.
 - **The reckoning.** When the last section is submitted, whoever has the most
   stormy clouds loses and owes the punishment set by the member who suggested
   the book.
-- **Picking the next book.** Everyone nominates two books (punishment
-  included). Everyone votes for up to two — at most one of their own. The top
-  two go to a runoff (or three-plus if there's a tie for first). One vote each
-  in the runoff.
+- **Picking the next book.** Open nominations in the Library on web or mobile,
+  usually in the last few sections of the current book. Each active member
+  can nominate up to two. Ranked choice is the default voting format.
+- **Ranked choice.** Rank any number of books, favorite first, including
+  someone else's book.
+  The lowest book is eliminated and its votes transfer to each ballot's next
+  remaining choice until a book has a majority of non-exhausted ballots.
+- **Two picks + final runoff (optional).** This format allows one or two picks,
+  including at least one nominated by someone else, followed by a one-vote
+  final between exactly two books. A lone self-vote is not a valid first-round
+  ballot. Choose this format when opening nominations.
+- **Ties and closing rounds.** A random draw, published before voting, breaks
+  ties for a finalist spot or ranked elimination; earlier in the draw keeps
+  its place. A tied final gets a fresh two-book vote. Ballots can be changed
+  until all active members have voted (automatic tally), or the poll organizer
+  or club creator closes the round early. Completed counts remain visible.
+  Ghosts can watch but cannot nominate, vote, or manage the selection.
+- **After the result.** Only the winning nominator can save sections and a
+  punishment. This can happen while the current book is still underway.
+  A separate **Start reading** action begins the rotation and deadlines once
+  the current book is over. A winner cannot be started twice or replaced by
+  another poll before it starts; the direct-start shortcut also respects this.
 - **Every Sunday** a summary of everyone's stormy clouds is compiled.
 
 ## Development
@@ -53,4 +71,8 @@ set in `convex/auth.ts`.
   section + day).
 - `convex/summaries.ts` — Sunday 20:00 UTC cron: per-club weekly snapshot.
 - `src/` — Vite + React 19 + Tailwind 4 single-page app with tabs for Today,
-  Book, Vote, Clouds, and Club.
+  Book, Library, Clouds, and Club.
+- `convex/polls.ts` and `convex/lib/voting.ts` — selection lifecycle and ranked
+  counting; covered with authenticated in-memory scenarios in `polls.test.ts`.
+- `src/VoteTab.tsx` and `mobile/src/screens/NextBookPoll.tsx` — book selection
+  and winner setup in each client's Library.
