@@ -27,7 +27,10 @@ export function LibraryTab(props: { clubId: Id<"clubs">; home: Home }) {
 
   return (
     <div className="space-y-4">
-      <NextBookPoll clubId={props.clubId} />
+      <NextBookPoll
+        clubId={props.clubId}
+        canParticipate={!props.home.viewerIsGhost}
+      />
       <Shelf clubId={props.clubId} onOpen={setOpenBookId} />
     </div>
   );

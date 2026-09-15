@@ -44,6 +44,28 @@ export const tallyValidator = v.object({
   clouds: v.number(),
 });
 
+export const votingMethod = v.union(v.literal("approval"), v.literal("ranked"));
+export const pollStatus = v.union(
+  v.literal("nominating"),
+  v.literal("voting"),
+  v.literal("runoff"),
+  v.literal("done"),
+);
+export const bookSetup = v.object({
+  sectionTitles: v.array(v.string()),
+  punishment: v.string(),
+  rotation: v.optional(v.array(v.id("users"))),
+});
+export const pollResult = v.object({
+  label: v.string(),
+  counts: v.array(
+    v.object({ nominationId: v.id("nominations"), votes: v.number() }),
+  ),
+  exhaustedBallots: v.number(),
+  eliminatedNominationId: v.optional(v.id("nominations")),
+  tieBreakUsed: v.boolean(),
+});
+
 export default defineSchema({
   // Convex Auth creates a row per account via users.createUser.
   users: defineTable({
@@ -156,6 +178,7 @@ export default defineSchema({
     pollId: v.optional(v.id("polls")),
   })
     .index("clubStatus", ["clubId", "status"])
+    .index("pollId", ["pollId"])
     // For the cron sweeping every active book across all clubs.
     .index("status", ["status"]),
 
@@ -187,21 +210,24 @@ export default defineSchema({
   polls: defineTable({
     clubId: v.id("clubs"),
     createdBy: v.id("users"),
-    status: v.union(
-      v.literal("nominating"),
-      v.literal("voting"),
-      v.literal("runoff"),
-      v.literal("done"),
-    ),
+    status: pollStatus,
+    // Optional fields preserve polls created before ranked choice and setup.
+    method: v.optional(votingMethod),
+    ballotVersion: v.optional(v.number()),
+    tieBreakOrder: v.optional(v.array(v.id("nominations"))),
+    results: v.optional(v.array(pollResult)),
+    setup: v.optional(bookSetup),
     runoffNominationIds: v.optional(v.array(v.id("nominations"))),
     winnerNominationId: v.optional(v.id("nominations")),
-  }).index("clubId", ["clubId"]),
+  })
+    .index("clubId", ["clubId"])
+    .index("clubStatus", ["clubId", "status"]),
 
   nominations: defineTable({
     pollId: v.id("polls"),
     title: v.string(),
     author: v.optional(v.string()),
-    punishment: v.string(),
+    punishment: v.optional(v.string()), // Legacy nominations; new stakes are set after winning.
     suggestedBy: v.id("users"),
   }).index("pollId", ["pollId"]),
 

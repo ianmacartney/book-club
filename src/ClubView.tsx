@@ -69,7 +69,13 @@ export function ClubView(props: {
       </nav>
 
       {tab === "today" && <TodayTab home={home} />}
-      {tab === "book" && <BookTab clubId={props.clubId} home={home} />}
+      {tab === "book" && (
+        <BookTab
+          clubId={props.clubId}
+          home={home}
+          onChooseBook={() => setTab("library")}
+        />
+      )}
       {tab === "library" && <LibraryTab clubId={props.clubId} home={home} />}
       {tab === "standings" && (
         <StandingsTab clubId={props.clubId} home={home} />

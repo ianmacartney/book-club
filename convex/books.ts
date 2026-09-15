@@ -110,6 +110,27 @@ export const start = mutation({
   returns: v.id("books"),
   handler: async (ctx, args) => {
     const user = await requireMembership(ctx, args.clubId);
+    // A selected book belongs to its nominator to prepare. The direct-start
+    // shortcut must not bypass an election or its pending winner.
+    const latestPoll = await ctx.db
+      .query("polls")
+      .withIndex("clubId", (q) => q.eq("clubId", args.clubId))
+      .order("desc")
+      .first();
+    if (latestPoll) {
+      const started = await ctx.db
+        .query("books")
+        .withIndex("pollId", (q) => q.eq("pollId", latestPoll._id))
+        .first();
+      if (
+        latestPoll.status !== "done" ||
+        (latestPoll.winnerNominationId && !started)
+      ) {
+        throw new ConvexError(
+          "Finish book selection in the Library. The winning nominator sets up and starts the book.",
+        );
+      }
+    }
     if (args.punishment.trim().length === 0) {
       throw new ConvexError(
         "The punishment is required — the suggester must set the stakes.",

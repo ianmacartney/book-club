@@ -3,343 +3,598 @@ import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { StartBookForm } from "./BookTab";
 import { errorMessage } from "./lib";
 import { Button, Card, ErrorNote, Field, Pill, inputClass } from "./ui";
 
-export function NextBookPoll(props: { clubId: Id<"clubs"> }) {
-  const poll = useQuery(api.polls.state, { clubId: props.clubId });
-  const startPoll = useMutation(api.polls.start);
-  const [error, setError] = useState<string | null>(null);
-
-  if (poll === undefined) {
-    return <p className="py-12 text-center text-ink/50">Counting ballots…</p>;
-  }
-
-  if (poll === null || (poll.status === "done" && poll.winnerNominationId === null)) {
-    return (
-      <Card>
-        <h2 className="mb-1 text-lg font-bold">🗳️ Pick the next book</h2>
-        <p className="mb-3 text-sm text-ink/60">
-          Everyone puts up two books (with a punishment attached), everyone
-          votes for up to two — at most one of their own — and the top two go
-          to a runoff.
-        </p>
-        <Button
-          onClick={async () => {
-            try {
-              await startPoll({ clubId: props.clubId });
-            } catch (err) {
-              setError(errorMessage(err));
-            }
-          }}
-        >
-          🗳️ Open nominations
-        </Button>
-        <ErrorNote error={error} />
-      </Card>
-    );
-  }
-
-  switch (poll.status) {
-    case "nominating":
-      return <Nominating poll={poll} />;
-    case "voting":
-    case "runoff":
-      return <Voting poll={poll} />;
-    case "done":
-      return <Done poll={poll} clubId={props.clubId} />;
-  }
-}
-
 type Poll = NonNullable<FunctionReturnType<typeof api.polls.state>>;
 
-function Nominating(props: { poll: Poll }) {
-  const { poll } = props;
+function useTask() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (task: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await task();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run };
+}
+
+export function NextBookPoll(props: {
+  clubId: Id<"clubs">;
+  canParticipate?: boolean;
+}) {
+  const poll = useQuery(api.polls.state, { clubId: props.clubId });
+  if (poll === undefined)
+    return (
+      <p className="py-8 text-center text-ink/60">Loading book selection…</p>
+    );
+  if (!poll || (poll.status === "done" && !poll.winnerNominationId)) {
+    return (
+      <OpenPoll
+        clubId={props.clubId}
+        canParticipate={props.canParticipate ?? true}
+      />
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {poll.status === "nominating" ? (
+        <Nominating key={poll._id} poll={poll} />
+      ) : poll.status === "done" ? (
+        <Done key={poll._id} poll={poll} />
+      ) : (
+        <Voting key={`${poll._id}:${poll.ballotVersion}`} poll={poll} />
+      )}
+      <Results poll={poll} />
+      {poll.startedBookId && (
+        <OpenPoll clubId={props.clubId} canParticipate={poll.canParticipate} />
+      )}
+    </div>
+  );
+}
+
+function OpenPoll(props: { clubId: Id<"clubs">; canParticipate: boolean }) {
+  const start = useMutation(api.polls.start);
+  const [method, setMethod] = useState<"approval" | "ranked">("ranked");
+  const task = useTask();
+  return (
+    <Card>
+      <h2 className="mb-1 text-lg font-bold">Pick the next book</h2>
+      <p className="mb-4 text-sm text-ink/70">
+        Start in the last few sections of the current book. Everyone can
+        nominate up to two books; the winner’s nominator sets the sections and
+        punishment afterward.
+      </p>
+      {props.canParticipate ? (
+        <>
+          <Field label="Voting format">
+            <select
+              className={inputClass}
+              value={method}
+              onChange={(e) => setMethod(e.target.value as typeof method)}
+              disabled={task.busy}
+            >
+              <option value="ranked">Ranked choice</option>
+              <option value="approval">Two picks + final runoff</option>
+            </select>
+          </Field>
+          <p className="my-3 text-sm text-ink/70">
+            {method === "approval"
+              ? "Vote for one or two books, including at least one from someone else. Then choose one of the top two."
+              : "Rank as many books as you like, including someone else’s. Your vote transfers to your next remaining choice when a book is eliminated."}
+          </p>
+          <Button
+            disabled={task.busy}
+            onClick={() =>
+              void task.run(() => start({ clubId: props.clubId, method }))
+            }
+          >
+            Open nominations
+          </Button>
+          <ErrorNote error={task.error} />
+        </>
+      ) : (
+        <p className="text-sm text-ink/60">
+          Active members can open nominations. You can follow along here.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function Nominating({ poll }: { poll: Poll }) {
   const nominate = useMutation(api.polls.nominate);
   const withdraw = useMutation(api.polls.withdrawNomination);
   const close = useMutation(api.polls.closeNominations);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
-  const [punishment, setPunishment] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
+  const task = useTask();
   return (
-    <div className="space-y-4">
-      <Card>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Nominations are open</h2>
-          <Pill>{poll.nominations.length} so far</Pill>
-        </div>
-        <NominationList poll={poll} onWithdraw={(id) => void withdraw({ nominationId: id })} />
-      </Card>
-
-      {poll.myNominationCount < 2 && (
-        <Card>
-          <h2 className="mb-1 font-bold">
-            Suggest a book ({poll.myNominationCount}/2 used)
-          </h2>
-          <p className="mb-3 text-sm text-ink/60">
-            Name the stakes: if your book wins, the member with the most ⛈️ at
-            the end owes this.
-          </p>
-          <form
-            className="space-y-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setError(null);
-              try {
-                await nominate({
-                  pollId: poll._id,
-                  title,
-                  author: author || undefined,
-                  punishment,
-                });
-                setTitle("");
-                setAuthor("");
-                setPunishment("");
-              } catch (err) {
-                setError(errorMessage(err));
-              }
-            }}
-          >
-            <Field label="Title">
-              <input
-                className={inputClass}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Author (optional)">
-              <input
-                className={inputClass}
-                value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-              />
-            </Field>
-            <Field label="Punishment">
-              <input
-                className={inputClass}
-                value={punishment}
-                onChange={(e) => setPunishment(e.target.value)}
-                placeholder="Buys everyone's next round"
-                required
-              />
-            </Field>
-            <ErrorNote error={error} />
-            <Button type="submit">Nominate</Button>
-          </form>
-        </Card>
-      )}
-
-      <div className="text-center">
-        <Button
-          variant="ghost"
-          onClick={async () => {
-            setError(null);
-            try {
-              await close({ pollId: poll._id });
-            } catch (err) {
-              setError(errorMessage(err));
-            }
-          }}
-        >
-          Close nominations → start voting
-        </Button>
+    <Card>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-bold">Nominations are open</h2>
+        <Pill>
+          {poll.method === "ranked" ? "Ranked choice" : "Two picks + runoff"}
+        </Pill>
       </div>
-    </div>
-  );
-}
-
-function NominationList(props: {
-  poll: Poll;
-  onWithdraw?: (id: Id<"nominations">) => void;
-  selectable?: {
-    selected: Id<"nominations">[];
-    toggle: (id: Id<"nominations">) => void;
-    eligible: (id: Id<"nominations">) => boolean;
-  };
-}) {
-  const { poll, selectable } = props;
-  const shown =
-    poll.status === "runoff"
-      ? poll.nominations.filter((n) => n.inRunoff)
-      : poll.nominations;
-  return (
-    <ul className="space-y-2">
-      {shown.map((n) => {
-        const selected = selectable?.selected.includes(n._id) ?? false;
-        return (
+      <p className="mb-4 text-sm text-ink/70">
+        {poll.nominations.length} nominated · {poll.myNominationCount}/2 of your
+        suggestions used. Sections and punishment come after the vote.
+      </p>
+      <ul className="space-y-2">
+        {poll.nominations.map((n) => (
           <li
             key={n._id}
-            className={`rounded-xl border p-3 ${
-              n.isWinner
-                ? "border-emerald-300 bg-emerald-50"
-                : selected
-                  ? "border-accent bg-accent/5"
-                  : "border-ink/10"
-            } ${selectable ? "cursor-pointer" : ""}`}
-            onClick={
-              selectable && selectable.eligible(n._id)
-                ? () => selectable.toggle(n._id)
-                : undefined
-            }
+            className="flex items-center justify-between gap-3 rounded-xl border border-ink/20 p-3"
           >
-            <div className="flex items-center justify-between gap-2">
-              <p className="font-semibold">
-                {n.title}
-                {n.author && (
-                  <span className="font-normal text-ink/50"> — {n.author}</span>
-                )}
-                {n.isWinner && " 🏆"}
+            <div>
+              <p className="font-semibold">{n.title}</p>
+              <p className="text-sm text-ink/60">
+                {n.author && `by ${n.author} · `}from {n.suggestedByName}
+                {n.mine && " (you)"}
               </p>
-              {selectable ? (
-                <span className="text-lg">{selected ? "☑️" : "⬜️"}</span>
-              ) : (
-                props.onWithdraw &&
-                n.mine && (
-                  <button
-                    className="text-xs text-red-600 hover:underline"
-                    onClick={() => props.onWithdraw!(n._id)}
-                  >
-                    withdraw
-                  </button>
-                )
-              )}
             </div>
-            <p className="text-sm text-ink/60">
-              from {n.suggestedByName}
-              {n.mine && " (you)"} · ☠️ {n.punishment}
-            </p>
+            {n.mine && poll.canParticipate && (
+              <Button
+                variant="ghost"
+                disabled={task.busy}
+                onClick={() =>
+                  void task.run(() => withdraw({ nominationId: n._id }))
+                }
+              >
+                Withdraw
+              </Button>
+            )}
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+      {poll.canParticipate && poll.myNominationCount < 2 && (
+        <form
+          className="mt-5 space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void task.run(async () => {
+              await nominate({
+                pollId: poll._id,
+                title,
+                author: author || undefined,
+              });
+              setTitle("");
+              setAuthor("");
+            });
+          }}
+        >
+          <Field label="Book title">
+            <input
+              className={inputClass}
+              required
+              maxLength={300}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </Field>
+          <Field label="Author (optional)">
+            <input
+              className={inputClass}
+              maxLength={300}
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+            />
+          </Field>
+          <Button type="submit" disabled={task.busy || !title.trim()}>
+            Nominate book
+          </Button>
+        </form>
+      )}
+      {poll.canManage && (
+        <div className="mt-5 border-t border-ink/20 pt-4">
+          <Button
+            variant="ghost"
+            disabled={task.busy || poll.nominations.length < 2}
+            onClick={() => {
+              if (confirm("Close nominations for everyone and open voting?"))
+                void task.run(() => close({ pollId: poll._id }));
+            }}
+          >
+            Close nominations → start voting
+          </Button>
+        </div>
+      )}
+      <ErrorNote error={task.error} />
+    </Card>
   );
 }
 
-function Voting(props: { poll: Poll }) {
-  const { poll } = props;
-  const isRunoff = poll.status === "runoff";
+function Voting({ poll }: { poll: Poll }) {
   const cast = useMutation(api.polls.castVote);
-  const closeRound = useMutation(api.polls.closeRound);
-  const [selected, setSelected] = useState<Id<"nominations">[]>(
-    poll.myVote ?? [],
+  const close = useMutation(api.polls.closeRound);
+  const [draft, setDraft] = useState<Id<"nominations">[] | null>(null);
+  const selected = draft ?? poll.myVote ?? [];
+  const task = useTask();
+  const runoff = poll.status === "runoff";
+  const ranked = !runoff && poll.method === "ranked";
+  const shown = poll.nominations.filter((n) => !runoff || n.inRunoff);
+  const hasOther = selected.some((id) =>
+    shown.some((n) => n._id === id && !n.mine),
   );
-  const [error, setError] = useState<string | null>(null);
-  const maxPicks = isRunoff ? 1 : 2;
-
+  const valid = selected.length > 0 && (runoff || hasOther);
+  const saved =
+    poll.myVote !== null &&
+    JSON.stringify(selected) === JSON.stringify(poll.myVote);
   const toggle = (id: Id<"nominations">) => {
-    setSelected((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id);
-      if (isRunoff) return [id];
-      if (prev.length >= maxPicks) return prev;
-      return [...prev, id];
-    });
+    if (selected.includes(id)) setDraft(selected.filter((i) => i !== id));
+    else if (runoff) setDraft([id]);
+    else if (ranked || selected.length < 2) setDraft([...selected, id]);
   };
-
-  const ownSelected = selected.filter(
-    (id) => poll.nominations.find((n) => n._id === id)?.mine,
-  ).length;
-
+  const move = (index: number, delta: number) => {
+    const next = [...selected];
+    [next[index], next[index + delta]] = [next[index + delta], next[index]];
+    setDraft(next);
+  };
+  const previous = poll.results.at(-1);
   return (
-    <div className="space-y-4">
-      <Card>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-lg font-bold">
-            {isRunoff ? "🏁 Runoff — pick one" : "Cast your votes"}
-          </h2>
-          <Pill>
-            {poll.votesCast}/{poll.memberCount} voted
-          </Pill>
-        </div>
-        <p className="mb-3 text-sm text-ink/60">
-          {isRunoff
-            ? "Top finishers face off. One vote each; majority takes it."
-            : "Pick up to two books — at most one of your own. The top two go to a runoff."}
-        </p>
-        <NominationList
-          poll={poll}
-          selectable={{
-            selected,
-            toggle,
-            eligible: () => true,
-          }}
-        />
-        {!isRunoff && ownSelected > 1 && (
-          <p className="mt-2 text-sm font-medium text-amber-700">
-            Only one of your own suggestions can get your vote.
+    <Card>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-bold">
+          {runoff
+            ? "Final runoff — pick one"
+            : ranked
+              ? "Rank your choices"
+              : "Choose up to two"}
+        </h2>
+        <Pill>
+          {poll.votesCast}/{poll.memberCount} voted
+        </Pill>
+      </div>
+      {runoff &&
+        previous &&
+        (previous.label.startsWith("Runoff") ||
+          previous.label.startsWith("Ranked")) && (
+          <p className="mb-3 font-medium text-amber-800">
+            The final was tied. Cast a fresh vote between these two books.
           </p>
         )}
-        <ErrorNote error={error} />
-        <div className="mt-4 flex items-center gap-3">
+      <p className="mb-4 text-sm text-ink/70">
+        {runoff
+          ? "One vote each. You may vote for your own nomination."
+          : ranked
+            ? "Select books in preference order, favorite first. Rank as many as you like, including at least one nominated by someone else. Unranked books get no preference."
+            : "Choose one or two books. At least one must be someone else’s nomination. The top two advance to a final runoff."}
+      </p>
+      <ul className="space-y-2">
+        {shown.map((n) => {
+          const index = selected.indexOf(n._id);
+          const checked = index !== -1;
+          return (
+            <li key={n._id}>
+              <button
+                type="button"
+                aria-pressed={checked}
+                disabled={
+                  !poll.canParticipate ||
+                  task.busy ||
+                  (!checked && !ranked && !runoff && selected.length === 2)
+                }
+                onClick={() => toggle(n._id)}
+                className={`w-full rounded-xl border p-3 text-left disabled:opacity-50 ${checked ? "border-accent bg-accent/5" : "border-ink/20"}`}
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">{n.title}</span>
+                  <span>
+                    {ranked && checked ? `#${index + 1}` : checked ? "✓" : "○"}
+                  </span>
+                </span>
+                <span className="text-sm text-ink/60">
+                  {n.author && `by ${n.author} · `}from {n.suggestedByName}
+                  {n.mine && " (you)"}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {ranked && selected.length > 0 && (
+        <ol className="mt-4 space-y-2" aria-label="Your ranked ballot">
+          {selected.map((id, i) => (
+            <li
+              key={id}
+              className="flex items-center justify-between gap-2 text-sm"
+            >
+              <span>
+                {i + 1}. {shown.find((n) => n._id === id)?.title}
+              </span>
+              <span className="flex gap-2">
+                <button
+                  aria-label={`Move ${shown.find((n) => n._id === id)?.title} up`}
+                  disabled={i === 0 || task.busy}
+                  className="rounded border border-ink/20 px-3 py-2 disabled:opacity-30"
+                  onClick={() => move(i, -1)}
+                >
+                  ↑
+                </button>
+                <button
+                  aria-label={`Move ${shown.find((n) => n._id === id)?.title} down`}
+                  disabled={i === selected.length - 1 || task.busy}
+                  className="rounded border border-ink/20 px-3 py-2 disabled:opacity-30"
+                  onClick={() => move(i, 1)}
+                >
+                  ↓
+                </button>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {poll.canParticipate && (
+        <>
+          {!runoff && selected.length > 0 && !hasOther && (
+            <p className="mt-3 text-sm text-amber-800">
+              Include at least one book nominated by someone else.
+            </p>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              disabled={task.busy || !valid || saved}
+              onClick={() =>
+                void task.run(async () => {
+                  await cast({
+                    pollId: poll._id,
+                    nominationIds: selected,
+                    ballotVersion: poll.ballotVersion,
+                  });
+                  setDraft(null);
+                })
+              }
+            >
+              {poll.myVote ? "Update ballot" : "Submit ballot"}
+            </Button>
+            {saved ? (
+              <Pill tone="ok">Ballot saved</Pill>
+            ) : (
+              poll.myVote && <Pill tone="warn">Unsaved changes</Pill>
+            )}
+          </div>
+          <p className="mt-3 text-xs text-ink/60">
+            You can change your ballot until the round closes. The last member’s
+            vote closes it automatically.
+          </p>
+        </>
+      )}
+      {poll.canManage && (
+        <div className="mt-4 border-t border-ink/20 pt-4">
           <Button
-            disabled={selected.length === 0 || ownSelected > 1}
-            onClick={async () => {
-              setError(null);
-              try {
-                await cast({ pollId: poll._id, nominationIds: selected });
-              } catch (err) {
-                setError(errorMessage(err));
+            variant="ghost"
+            disabled={task.busy || poll.votesCast === 0}
+            onClick={() => {
+              if (
+                confirm(
+                  `Tally now with ${poll.votesCast} of ${poll.memberCount} ballots? Members who haven’t voted will miss this round.`,
+                )
+              ) {
+                void task.run(() =>
+                  close({
+                    pollId: poll._id,
+                    ballotVersion: poll.ballotVersion,
+                  }),
+                );
               }
             }}
           >
-            {poll.myVote ? "Update ballot" : "Submit ballot"}
+            Close round and tally
           </Button>
-          {poll.myVote && <Pill tone="ok">ballot in ✅</Pill>}
         </div>
-      </Card>
-      <div className="text-center">
-        <Button
-          variant="ghost"
-          onClick={async () => {
-            setError(null);
-            try {
-              await closeRound({ pollId: poll._id });
-            } catch (err) {
-              setError(errorMessage(err));
-            }
-          }}
-        >
-          Everyone who's voting has voted — tally it
-        </Button>
-      </div>
-    </div>
+      )}
+      <ErrorNote error={task.error} />
+    </Card>
   );
 }
 
-function Done(props: { poll: Poll; clubId: Id<"clubs"> }) {
-  const { poll } = props;
-  const winner = poll.nominations.find((n) => n._id === poll.winnerNominationId);
+function Done({ poll }: { poll: Poll }) {
+  const winner = poll.nominations.find((n) => n.isWinner);
+  const [editing, setEditing] = useState(false);
+  const start = useMutation(api.polls.startWinningBook);
+  const task = useTask();
   if (!winner) return null;
   return (
-    <div className="space-y-4">
-      <Card>
-        <h2 className="text-lg font-bold">🏆 The club has spoken</h2>
-        <p className="mt-1">
-          <span className="font-semibold">{winner.title}</span>
-          {winner.author && ` by ${winner.author}`} — suggested by{" "}
-          {winner.suggestedByName}.
+    <Card>
+      <Pill tone="ok">The next book</Pill>
+      <h2 className="mt-2 text-xl font-bold">{winner.title}</h2>
+      <p className="mt-1 text-sm text-ink/70">
+        {winner.author && `by ${winner.author} · `}Nominated by{" "}
+        {winner.suggestedByName}
+      </p>
+      {poll.startedBookId ? (
+        <p className="mt-4 text-sm">
+          This winning book has been started. Find it in the Book tab or on the
+          shelf.
         </p>
-        <p className="mt-1 text-sm text-ink/60">☠️ Stakes: {winner.punishment}</p>
-      </Card>
-      {poll.clubIsReading ? (
-        <Card>
-          <p className="text-sm text-ink/60">
-            📖 The club is reading — check the <strong>Book</strong> tab.
-          </p>
-        </Card>
       ) : (
-        <StartBookForm
-          clubId={props.clubId}
-          poll={{
-            pollId: poll._id,
-            title: winner.title,
-            author: winner.author,
-          }}
-        />
+        <>
+          <p className="my-4 text-sm text-ink/70">
+            {winner.mine
+              ? "Your book won. Set the sections and punishment, then start reading when the current book is finished."
+              : `${winner.suggestedByName} will divide the book into sections and set the punishment before reading starts.`}
+          </p>
+          {poll.setup && (
+            <div className="my-4 rounded-xl bg-paper p-4">
+              <p className="font-semibold">
+                Ready to read · {poll.setup.sectionTitles.length} sections
+              </p>
+              <p className="mt-1 text-sm">☠️ {poll.setup.punishment}</p>
+              <ol className="mt-2 list-inside list-decimal text-sm text-ink/70">
+                {poll.setup.sectionTitles.map((title, i) => (
+                  <li key={i}>{title}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {winner.mine && poll.canParticipate && (
+            <>
+              {!poll.setup || editing ? (
+                <WinningBookSetup
+                  poll={poll}
+                  onSaved={() => setEditing(false)}
+                />
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="ghost"
+                    disabled={task.busy}
+                    onClick={() => setEditing(true)}
+                  >
+                    Edit sections & punishment
+                  </Button>
+                  <Button
+                    disabled={task.busy || poll.clubIsReading}
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Start this book now? The first reader’s two-day deadline starts today.",
+                        )
+                      )
+                        void task.run(() => start({ pollId: poll._id }));
+                    }}
+                  >
+                    Start reading
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+          {poll.clubIsReading && (
+            <p className="mt-3 text-sm text-ink/60">
+              You can prepare the next book now. Reading can start once the
+              current book is finished.
+            </p>
+          )}
+        </>
       )}
-    </div>
+      <ErrorNote error={task.error} />
+    </Card>
+  );
+}
+
+function WinningBookSetup({
+  poll,
+  onSaved,
+}: {
+  poll: Poll;
+  onSaved: () => void;
+}) {
+  const save = useMutation(api.polls.saveWinningBookSetup);
+  const [sections, setSections] = useState(
+    poll.setup?.sectionTitles.join("\n") ?? "",
+  );
+  const [punishment, setPunishment] = useState(poll.setup?.punishment ?? "");
+  const task = useTask();
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void task.run(async () => {
+          await save({
+            pollId: poll._id,
+            sectionTitles: sections
+              .split("\n")
+              .map((s) => s.trim())
+              .filter(Boolean),
+            punishment,
+          });
+          onSaved();
+        });
+      }}
+    >
+      <Field label="Sections (one per line)">
+        <textarea
+          className={inputClass}
+          rows={6}
+          required
+          value={sections}
+          onChange={(e) => setSections(e.target.value)}
+          placeholder={"Chapters 1–3\nChapters 4–6\nChapters 7–9"}
+        />
+      </Field>
+      <Field label="Punishment for the most clouds">
+        <textarea
+          className={inputClass}
+          rows={2}
+          required
+          maxLength={2000}
+          value={punishment}
+          onChange={(e) => setPunishment(e.target.value)}
+          placeholder="Karaoke. Full commitment."
+        />
+      </Field>
+      <p className="text-xs text-ink/60">
+        Sections rotate through members in join order, with two calendar days
+        per turn. Saving this plan does not start the reading clock.
+      </p>
+      <Button
+        type="submit"
+        disabled={task.busy || !sections.trim() || !punishment.trim()}
+      >
+        Save sections & punishment
+      </Button>
+      <ErrorNote error={task.error} />
+    </form>
+  );
+}
+
+function Results({ poll }: { poll: Poll }) {
+  if (!poll.tieBreakOrder.length && !poll.results.length) return null;
+  const title = (id: Id<"nominations">) =>
+    poll.nominations.find((n) => n._id === id)?.title ?? "Book";
+  return (
+    <Card>
+      <details>
+        <summary className="cursor-pointer font-semibold">
+          {poll.results.length ? "Vote results & tie rules" : "Tie rules"}
+        </summary>
+        <p className="mt-3 text-sm text-ink/70">
+          Ties for a finalist spot or ranked elimination use a random draw made
+          before voting. Earlier books in the draw keep their place. A tied
+          final gets a fresh vote.
+        </p>
+        {poll.tieBreakOrder.length > 0 && (
+          <p className="mt-2 text-xs text-ink/60">
+            Draw order: {poll.tieBreakOrder.map(title).join(" → ")}
+          </p>
+        )}
+        {poll.results.map((result, i) => (
+          <div className="mt-4 border-t border-ink/20 pt-3" key={i}>
+            <h3 className="font-semibold">{result.label}</h3>
+            <ul className="mt-1 text-sm">
+              {result.counts.map((c) => (
+                <li key={c.nominationId} className="flex justify-between gap-4">
+                  <span>{title(c.nominationId)}</span>
+                  <span>{c.votes}</span>
+                </li>
+              ))}
+            </ul>
+            {result.eliminatedNominationId && (
+              <p className="mt-2 text-xs">
+                Eliminated: {title(result.eliminatedNominationId)}
+              </p>
+            )}
+            {result.exhaustedBallots > 0 && (
+              <p className="text-xs">
+                {result.exhaustedBallots} ballots have no remaining ranked
+                choices.
+              </p>
+            )}
+            {result.tieBreakUsed && (
+              <p className="text-xs">The published draw broke a tie.</p>
+            )}
+          </div>
+        ))}
+      </details>
+    </Card>
   );
 }

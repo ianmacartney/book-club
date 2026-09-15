@@ -6,10 +6,24 @@ import type { Home } from "./ClubView";
 import { errorMessage, prettyDay, useToday } from "./lib";
 import { Button, Card, ErrorNote, Field, Pill, inputClass } from "./ui";
 
-export function BookTab(props: { clubId: Id<"clubs">; home: Home }) {
+export function BookTab(props: {
+  clubId: Id<"clubs">;
+  home: Home;
+  onChooseBook: () => void;
+}) {
+  const poll = useQuery(api.polls.state, { clubId: props.clubId });
+  const canStartDirectly =
+    poll !== undefined &&
+    (!poll ||
+      (poll.status === "done" &&
+        (!poll.winnerNominationId || poll.startedBookId)));
   if (props.home.activeBookId !== null) {
     return (
-      <BookDetail bookId={props.home.activeBookId} viewerId={props.home.viewerId} />
+      <BookDetail
+        bookId={props.home.activeBookId}
+        viewerId={props.home.viewerId}
+        onChooseBook={props.onChooseBook}
+      />
     );
   }
   return (
@@ -18,15 +32,24 @@ export function BookTab(props: { clubId: Id<"clubs">; home: Home }) {
         <h2 className="mb-1 text-lg font-bold">No book on the go</h2>
         <p className="text-sm text-ink/60">
           Head to the <strong>🏛️ Library</strong> tab to pick the next book
-          together — or start one directly below if the club already agreed.
+          together. The winning nominator sets the sections and punishment.
         </p>
+        <Button className="mt-3" onClick={props.onChooseBook}>
+          Choose the next book
+        </Button>
       </Card>
-      <StartBookForm clubId={props.clubId} />
+      {!props.home.viewerIsGhost && canStartDirectly && (
+        <StartBookForm clubId={props.clubId} />
+      )}
     </div>
   );
 }
 
-export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }) {
+export function BookDetail(props: {
+  bookId: Id<"books">;
+  viewerId: Id<"users">;
+  onChooseBook?: () => void;
+}) {
   const detail = useQuery(api.books.detail, {
     bookId: props.bookId,
     viewerDay: useToday(),
@@ -42,6 +65,19 @@ export function BookDetail(props: { bookId: Id<"books">; viewerId: Id<"users"> }
 
   return (
     <div className="space-y-4">
+      {book.status === "active" &&
+        sections.length - done <= 3 &&
+        props.onChooseBook && (
+          <Card>
+            <p className="mb-3 text-sm text-ink/70">
+              Only {sections.length - done} sections left. Time to choose the
+              next book together.
+            </p>
+            <Button variant="ghost" onClick={props.onChooseBook}>
+              Next book · nominations & voting
+            </Button>
+          </Card>
+        )}
       <Card>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -379,34 +415,20 @@ function DraftForm(props: {
   );
 }
 
-export function StartBookForm(props: {
-  clubId: Id<"clubs">;
-  poll?: {
-    pollId: Id<"polls">;
-    title: string;
-    author: string | null;
-  };
-}) {
+export function StartBookForm(props: { clubId: Id<"clubs"> }) {
   const startDirect = useMutation(api.books.start);
-  const startFromPoll = useMutation(api.polls.startWinningBook);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [punishment, setPunishment] = useState("");
   const [sectionsText, setSectionsText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const fromPoll = props.poll !== undefined;
-
   return (
     <Card>
-      <h2 className="mb-1 text-lg font-bold">
-        {fromPoll
-          ? `Start reading “${props.poll!.title}”`
-          : "Start a book directly"}
-      </h2>
+      <h2 className="mb-1 text-lg font-bold">Start a book directly</h2>
       <p className="mb-3 text-sm text-ink/60">
-        Split the book into sections — one per line. Sections rotate through
-        the members in join order; each turn is 2 calendar days.
+        Split the book into sections — one per line. Sections rotate through the
+        members in join order; each turn is 2 calendar days.
       </p>
       <form
         className="space-y-3"
@@ -418,50 +440,44 @@ export function StartBookForm(props: {
             .map((l) => l.trim())
             .filter((l) => l.length > 0);
           try {
-            if (fromPoll) {
-              await startFromPoll({ pollId: props.poll!.pollId, sectionTitles });
-            } else {
-              await startDirect({
-                clubId: props.clubId,
-                title,
-                author: author || undefined,
-                punishment,
-                sectionTitles,
-              });
-            }
+            await startDirect({
+              clubId: props.clubId,
+              title,
+              author: author || undefined,
+              punishment,
+              sectionTitles,
+            });
           } catch (err) {
             setError(errorMessage(err));
           }
         }}
       >
-        {!fromPoll && (
-          <>
-            <Field label="Title">
-              <input
-                className={inputClass}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Author (optional)">
-              <input
-                className={inputClass}
-                value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-              />
-            </Field>
-            <Field label="Punishment for the loser">
-              <input
-                className={inputClass}
-                value={punishment}
-                onChange={(e) => setPunishment(e.target.value)}
-                placeholder="Karaoke. Full commitment."
-                required
-              />
-            </Field>
-          </>
-        )}
+        <>
+          <Field label="Title">
+            <input
+              className={inputClass}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Author (optional)">
+            <input
+              className={inputClass}
+              value={author}
+              onChange={(e) => setAuthor(e.target.value)}
+            />
+          </Field>
+          <Field label="Punishment for the loser">
+            <input
+              className={inputClass}
+              value={punishment}
+              onChange={(e) => setPunishment(e.target.value)}
+              placeholder="Karaoke. Full commitment."
+              required
+            />
+          </Field>
+        </>
         <Field label="Sections (one per line)">
           <textarea
             className={inputClass}
@@ -478,4 +494,3 @@ export function StartBookForm(props: {
     </Card>
   );
 }
-
