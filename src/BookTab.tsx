@@ -30,7 +30,7 @@ export function BookTab(props: {
     <div className="space-y-4">
       <Card>
         <h2 className="mb-1 text-lg font-bold">No book on the go</h2>
-        <p className="text-sm text-ink/60">
+        <p className="text-sm text-muted">
           Head to the <strong>🏛️ Library</strong> tab to pick the next book
           together. The winning nominator sets the sections and punishment.
         </p>
@@ -58,7 +58,7 @@ export function BookDetail(props: {
   const [error, setError] = useState<string | null>(null);
 
   if (detail === undefined) {
-    return <p className="py-12 text-center text-ink/50">Fetching the book…</p>;
+    return <p className="py-12 text-center text-muted">Fetching the book…</p>;
   }
   const { book, sections, current } = detail;
   const done = sections.filter((s) => s.submission !== null).length;
@@ -79,10 +79,10 @@ export function BookDetail(props: {
           </Card>
         )}
       <Card>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold">{book.title}</h2>
-            {book.author && <p className="text-ink/60">by {book.author}</p>}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold">{book.title}</h2>
+            {book.author && <p className="text-muted">by {book.author}</p>}
           </div>
           <Pill tone={book.status === "active" ? "ok" : "muted"}>
             {done}/{sections.length} sections
@@ -114,41 +114,82 @@ export function BookDetail(props: {
         )}
       </Card>
 
-      <div className="space-y-3">
+      <section
+        aria-label="Book sections"
+        className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white"
+      >
         {sections.map((s) => {
           const isCurrent = current?.sectionId === s._id;
-          return (
-            <Card
-              key={s._id}
-              className={isCurrent ? "border-accent ring-2 ring-accent/20" : ""}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="font-bold">
-                  {s.index + 1}. {s.title}
-                </h3>
-                {s.submission ? (
-                  <Pill tone="ok">
+          if (s.submission) {
+            return (
+              <details key={s._id} className="group">
+                <summary className="flex list-none items-center gap-3 px-4 py-3 hover:bg-paper focus-visible:outline-offset-[-3px] sm:px-5 [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold">
+                      {s.index + 1}. {s.title}
+                    </h3>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {s.submission.byName} · {prettyDay(s.submission.day)}
+                      {s.submission.skip && ` · covered for ${s.assigneeName}`}
+                      {s.submission.draftedAt !== undefined && " · written ahead"}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs font-medium text-emerald-800">
                     {s.submission.skip ? "skipped ⛈️⛈️" : "done ✅"}
-                  </Pill>
-                ) : isCurrent ? (
-                  <Pill tone={current!.daysLate > 0 ? "warn" : "muted"}>
+                  </span>
+                  <svg
+                    aria-hidden="true"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0 text-muted group-open:rotate-90"
+                  >
+                    <path d="m9 5 7 7-7 7" />
+                  </svg>
+                </summary>
+                <Submission submission={s.submission} />
+              </details>
+            );
+          }
+
+          return (
+            <div
+              key={s._id}
+              className={`px-4 py-3 sm:px-5 ${isCurrent ? "bg-accent/5" : ""}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold">
+                    {s.index + 1}. {s.title}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {s.assigneeName}'s turn
+                    {s.dueDay && !isCurrent && ` · due ${prettyDay(s.dueDay)}`}
+                  </p>
+                </div>
+                {isCurrent ? (
+                  <span
+                    className={`text-xs font-medium ${current!.daysLate > 0 ? "text-amber-900" : "text-accent-dark"}`}
+                  >
                     {current!.daysLate > 0
-                      ? `${current!.daysLate} day${current!.daysLate === 1 ? "" : "s"} late — ${current!.daysLate * 2} ⛈️ and counting`
+                      ? `${current!.daysLate} day${current!.daysLate === 1 ? "" : "s"} late — ${current!.daysLate * 2} ⛈️ and counting${s.dueDay ? ` · due ${prettyDay(s.dueDay)}` : ""}`
                       : s.dueDay
                         ? `due ${prettyDay(s.dueDay)}`
                         : "up now"}
-                  </Pill>
+                  </span>
                 ) : s.draft ? (
-                  <Pill tone="ok">written ahead ✍️</Pill>
+                  <span className="text-xs font-medium text-emerald-800">
+                    written ahead ✍️
+                  </span>
                 ) : (
-                  <Pill>upcoming</Pill>
+                  <span className="text-xs text-muted">upcoming</span>
                 )}
               </div>
-              <p className="mt-1 text-sm text-ink/60">
-                {s.assigneeName}'s turn
-                {s.dueDay && !s.submission && ` · due ${prettyDay(s.dueDay)}`}
-              </p>
-              {s.submission && <Submission submission={s.submission} />}
               {isCurrent && (
                 <SectionForm
                   section={s}
@@ -156,13 +197,13 @@ export function BookDetail(props: {
                   viewerId={props.viewerId}
                 />
               )}
-              {!isCurrent && !s.submission && (
+              {!isCurrent && (
                 <DraftForm section={s} viewerId={props.viewerId} />
               )}
-            </Card>
+            </div>
           );
         })}
-      </div>
+      </section>
 
       {book.status === "active" && (
         <div className="text-center">
@@ -188,40 +229,25 @@ export function BookDetail(props: {
 
 function Submission(props: {
   submission: {
-    byName: string;
-    day: string;
     quotes: string;
     thoughts: string;
-    skip: boolean;
-    draftedAt?: number;
   };
 }) {
-  const [open, setOpen] = useState(false);
   const s = props.submission;
   return (
-    <div className="mt-2">
-      <button
-        className="text-sm font-semibold text-accent hover:underline"
-        onClick={() => setOpen(!open)}
-      >
-        {open ? "Hide" : "Read"} {s.byName}'s notes ({prettyDay(s.day)})
-        {s.skip && " — covered for the assignee"}
-        {s.draftedAt !== undefined && " — written ahead"}
-      </button>
-      {open && (
-        <div className="mt-2 space-y-2 rounded-xl bg-paper p-3 text-sm">
-          {s.quotes && (
-            <div>
-              <p className="font-semibold">Quotes</p>
-              <p className="whitespace-pre-wrap italic">{s.quotes}</p>
-            </div>
-          )}
-          {s.thoughts && (
-            <div>
-              <p className="font-semibold">Thoughts</p>
-              <p className="whitespace-pre-wrap">{s.thoughts}</p>
-            </div>
-          )}
+    <div className="space-y-3 px-4 pb-4 pt-1 text-sm sm:px-5">
+      {s.quotes && (
+        <div>
+          <p className="mb-1 font-semibold">Quotes</p>
+          <blockquote className="max-w-prose whitespace-pre-wrap text-ink/80 [overflow-wrap:anywhere]">
+            {s.quotes}
+          </blockquote>
+        </div>
+      )}
+      {s.thoughts && (
+        <div>
+          <p className="mb-1 font-semibold">Thoughts</p>
+          <p className="max-w-prose whitespace-pre-wrap">{s.thoughts}</p>
         </div>
       )}
     </div>
@@ -324,7 +350,7 @@ function DraftForm(props: {
     return (
       <div className="mt-2">
         <button
-          className="text-sm font-semibold text-accent hover:underline"
+          className="min-h-11 text-left text-sm font-semibold text-accent hover:underline"
           onClick={() => {
             setQuotes(draft?.quotes ?? "");
             setThoughts(draft?.thoughts ?? "");
@@ -426,7 +452,7 @@ export function StartBookForm(props: { clubId: Id<"clubs"> }) {
   return (
     <Card>
       <h2 className="mb-1 text-lg font-bold">Start a book directly</h2>
-      <p className="mb-3 text-sm text-ink/60">
+      <p className="mb-3 text-sm text-muted">
         Split the book into sections — one per line. Sections rotate through the
         members in join order; each turn is 2 calendar days.
       </p>
