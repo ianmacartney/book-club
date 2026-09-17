@@ -32,7 +32,7 @@ export function NextBookPoll(props: {
   const poll = useQuery(api.polls.state, { clubId: props.clubId });
   if (poll === undefined)
     return (
-      <p className="py-8 text-center text-ink/60">Loading book selection…</p>
+      <p className="py-8 text-center text-muted">Loading book selection…</p>
     );
   if (!poll || (poll.status === "done" && !poll.winnerNominationId)) {
     return (
@@ -100,7 +100,7 @@ function OpenPoll(props: { clubId: Id<"clubs">; canParticipate: boolean }) {
           <ErrorNote error={task.error} />
         </>
       ) : (
-        <p className="text-sm text-ink/60">
+        <p className="text-sm text-muted">
           Active members can open nominations. You can follow along here.
         </p>
       )}
@@ -131,11 +131,11 @@ function Nominating({ poll }: { poll: Poll }) {
         {poll.nominations.map((n) => (
           <li
             key={n._id}
-            className="flex items-center justify-between gap-3 rounded-xl border border-ink/20 p-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line p-4"
           >
-            <div>
+            <div className="min-w-0 flex-1 basis-40">
               <p className="font-semibold">{n.title}</p>
-              <p className="text-sm text-ink/60">
+              <p className="text-sm text-muted">
                 {n.author && `by ${n.author} · `}from {n.suggestedByName}
                 {n.mine && " (you)"}
               </p>
@@ -282,15 +282,15 @@ function Voting({ poll }: { poll: Poll }) {
                   (!checked && !ranked && !runoff && selected.length === 2)
                 }
                 onClick={() => toggle(n._id)}
-                className={`w-full rounded-xl border p-3 text-left disabled:opacity-50 ${checked ? "border-accent bg-accent/5" : "border-ink/20"}`}
+                className={`w-full rounded-xl border p-4 text-left disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "border-accent bg-accent/5" : "border-control hover:bg-paper"}`}
               >
                 <span className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">{n.title}</span>
-                  <span>
+                  <span className="min-w-0 font-semibold">{n.title}</span>
+                  <span aria-hidden="true" className="shrink-0 font-semibold tabular-nums text-accent-dark">
                     {ranked && checked ? `#${index + 1}` : checked ? "✓" : "○"}
                   </span>
                 </span>
-                <span className="text-sm text-ink/60">
+                <span className="text-sm text-muted">
                   {n.author && `by ${n.author} · `}from {n.suggestedByName}
                   {n.mine && " (you)"}
                 </span>
@@ -309,11 +309,11 @@ function Voting({ poll }: { poll: Poll }) {
               <span>
                 {i + 1}. {shown.find((n) => n._id === id)?.title}
               </span>
-              <span className="flex gap-2">
+              <span className="flex shrink-0 gap-2">
                 <button
                   aria-label={`Move ${shown.find((n) => n._id === id)?.title} up`}
                   disabled={i === 0 || task.busy}
-                  className="rounded border border-ink/20 px-3 py-2 disabled:opacity-30"
+                  className="min-h-11 min-w-11 rounded-lg border border-control px-3 py-2 hover:bg-paper disabled:cursor-not-allowed disabled:opacity-30"
                   onClick={() => move(i, -1)}
                 >
                   ↑
@@ -321,7 +321,7 @@ function Voting({ poll }: { poll: Poll }) {
                 <button
                   aria-label={`Move ${shown.find((n) => n._id === id)?.title} down`}
                   disabled={i === selected.length - 1 || task.busy}
-                  className="rounded border border-ink/20 px-3 py-2 disabled:opacity-30"
+                  className="min-h-11 min-w-11 rounded-lg border border-control px-3 py-2 hover:bg-paper disabled:cursor-not-allowed disabled:opacity-30"
                   onClick={() => move(i, 1)}
                 >
                   ↓
@@ -360,7 +360,7 @@ function Voting({ poll }: { poll: Poll }) {
               poll.myVote && <Pill tone="warn">Unsaved changes</Pill>
             )}
           </div>
-          <p className="mt-3 text-xs text-ink/60">
+          <p className="mt-3 text-xs text-muted">
             You can change your ballot until the round closes. The last member’s
             vote closes it automatically.
           </p>
@@ -468,7 +468,7 @@ function Done({ poll }: { poll: Poll }) {
             </>
           )}
           {poll.clubIsReading && (
-            <p className="mt-3 text-sm text-ink/60">
+            <p className="mt-3 text-sm text-muted">
               You can prepare the next book now. Reading can start once the
               current book is finished.
             </p>
@@ -532,7 +532,7 @@ function WinningBookSetup({
           placeholder="Karaoke. Full commitment."
         />
       </Field>
-      <p className="text-xs text-ink/60">
+      <p className="text-xs text-muted">
         Sections rotate through members in join order, with two calendar days
         per turn. Saving this plan does not start the reading clock.
       </p>
@@ -563,7 +563,7 @@ function Results({ poll }: { poll: Poll }) {
           final gets a fresh vote.
         </p>
         {poll.tieBreakOrder.length > 0 && (
-          <p className="mt-2 text-xs text-ink/60">
+          <p className="mt-2 text-xs text-muted">
             Draw order: {poll.tieBreakOrder.map(title).join(" → ")}
           </p>
         )}

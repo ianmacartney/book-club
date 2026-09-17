@@ -16,7 +16,7 @@ export function StandingsTab(props: { clubId: Id<"clubs">; home: Home }) {
     <div className="space-y-4">
       <Card>
         <h2 className="mb-1 text-lg font-bold">⛈️ Current standings</h2>
-        <p className="mb-3 text-sm text-ink/60">
+        <p className="mb-3 text-sm text-muted">
           {home.activeBookId
             ? "Clouds gathered since the current book began. Most clouds when the last section lands owes the punishment."
             : "No book underway — clouds start counting when one begins."}
@@ -31,7 +31,7 @@ export function StandingsTab(props: { clubId: Id<"clubs">; home: Home }) {
                 {i === 0 && m.bookClouds > 0 ? "☠️ " : ""}
                 {m.name}
                 {m._id === home.viewerId && (
-                  <span className="text-ink/40"> (you)</span>
+                  <span className="text-muted"> (you)</span>
                 )}
               </span>
               <span className="font-semibold">
@@ -45,9 +45,9 @@ export function StandingsTab(props: { clubId: Id<"clubs">; home: Home }) {
       <Card>
         <h2 className="mb-3 text-lg font-bold">📬 Sunday summaries</h2>
         {summaries === undefined ? (
-          <p className="text-sm text-ink/50">Loading…</p>
+          <p className="text-sm text-muted">Loading…</p>
         ) : summaries.length === 0 ? (
-          <p className="text-sm text-ink/60">
+          <p className="text-sm text-muted">
             Every Sunday the week's stormy clouds get tallied up here.
           </p>
         ) : (
@@ -67,7 +67,7 @@ export function StandingsTab(props: { clubId: Id<"clubs">; home: Home }) {
                       <span>
                         {e.weekClouds} ⛈️ this week
                         {e.bookClouds > 0 && (
-                          <span className="text-ink/50">
+                          <span className="text-muted">
                             {" "}
                             · {e.bookClouds} this book
                           </span>

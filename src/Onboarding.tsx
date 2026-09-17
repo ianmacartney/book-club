@@ -16,9 +16,9 @@ export function Onboarding(props: { onJoined: (id: Id<"clubs">) => void }) {
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <div className="mx-auto max-w-md space-y-4 pt-16">
+    <div className="mx-auto max-w-md space-y-5 pt-8 sm:pt-16">
       <h1 className="text-center text-2xl font-bold">Welcome 👋</h1>
-      <p className="text-center text-ink/60">
+      <p className="text-center text-muted">
         Book clubs are invite-only. Redeem an invite code, or found a club of
         your own.
       </p>
@@ -77,7 +77,7 @@ export function Onboarding(props: { onJoined: (id: Id<"clubs">) => void }) {
       <ErrorNote error={error} />
       <p className="text-center">
         <button
-          className="text-sm text-ink/50 hover:underline"
+          className="min-h-11 px-3 text-sm text-muted hover:underline"
           onClick={() => void signOut()}
         >
           Sign out

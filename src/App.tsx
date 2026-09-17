@@ -14,9 +14,9 @@ import { browserTimezone, useToday } from "./lib";
 
 export function App() {
   return (
-    <div className="mx-auto min-h-screen max-w-3xl px-4 py-6">
+    <main className="app-shell">
       <AuthLoading>
-        <p className="py-24 text-center text-ink/50">Opening the club…</p>
+        <p className="py-24 text-center text-muted">Opening the club…</p>
       </AuthLoading>
       <Unauthenticated>
         <AuthScreen />
@@ -24,7 +24,7 @@ export function App() {
       <Authenticated>
         <SignedIn />
       </Authenticated>
-    </div>
+    </main>
   );
 }
 
@@ -44,7 +44,7 @@ function SignedIn() {
   }, [me, ensureTimezone]);
 
   if (me === undefined || clubs === undefined) {
-    return <p className="py-24 text-center text-ink/50">Opening the club…</p>;
+    return <p className="py-24 text-center text-muted">Opening the club…</p>;
   }
   if (me === null) {
     return null; // auth state settling

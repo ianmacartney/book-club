@@ -8,16 +8,16 @@ import { ClubTab } from "./ClubTab";
 import { LibraryTab } from "./LibraryTab";
 import { StandingsTab } from "./StandingsTab";
 import { errorMessage, prettyDay, useToday } from "./lib";
-import { Button, Card, ErrorNote, Pill } from "./ui";
+import { Button, Card, ErrorNote, NavIcon, Pill, inputClass } from "./ui";
 
 type Tab = "today" | "book" | "library" | "standings" | "club";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "today", label: "⭐️ Today" },
-  { id: "book", label: "📖 Book" },
-  { id: "library", label: "🏛️ Library" },
-  { id: "standings", label: "⛈️ Clouds" },
-  { id: "club", label: "👥 Club" },
+  { id: "today", label: "Today" },
+  { id: "book", label: "Book" },
+  { id: "library", label: "Library" },
+  { id: "standings", label: "Clouds" },
+  { id: "club", label: "Club" },
 ];
 
 export function ClubView(props: {
@@ -32,16 +32,20 @@ export function ClubView(props: {
   const [tab, setTab] = useState<Tab>("today");
 
   if (home === undefined) {
-    return <p className="py-24 text-center text-ink/50">Opening the club…</p>;
+    return <p className="py-24 text-center text-muted">Opening the club…</p>;
   }
 
   return (
-    <div className="space-y-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">📚 {home.club.name}</h1>
+    <div className="space-y-6">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+        <h1 className="min-w-0 text-2xl font-bold sm:text-3xl">
+          <span aria-hidden="true">📚 </span>
+          {home.club.name}
+        </h1>
         {props.clubs.length > 1 && (
           <select
-            className="rounded-xl border border-ink/20 bg-white px-2 py-1 text-sm"
+            aria-label="Switch club"
+            className={`${inputClass} sm:max-w-56 sm:shrink-0`}
             value={props.clubId}
             onChange={(e) => props.onSwitchClub(e.target.value as Id<"clubs">)}
           >
@@ -54,15 +58,21 @@ export function ClubView(props: {
         )}
       </header>
 
-      <nav className="flex gap-1 overflow-x-auto rounded-2xl border border-ink/10 bg-white p-1 shadow-sm">
+      <nav
+        aria-label="Club navigation"
+        className="grid grid-cols-5 gap-1 rounded-2xl border border-line bg-white p-1.5"
+      >
         {TABS.map((t) => (
           <button
             key={t.id}
+            type="button"
+            aria-current={tab === t.id ? "page" : undefined}
             onClick={() => setTab(t.id)}
-            className={`flex-1 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition ${
-              tab === t.id ? "bg-accent text-white" : "hover:bg-ink/5"
+            className={`flex min-h-15 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-xs font-semibold sm:min-h-12 sm:flex-row sm:gap-2 sm:text-sm ${
+              tab === t.id ? "bg-accent text-white" : "text-muted hover:bg-paper hover:text-ink"
             }`}
           >
+            <NavIcon name={t.id} />
             {t.label}
           </button>
         ))}
@@ -133,12 +143,12 @@ function TodayTab(props: { home: Home }) {
   };
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <h2 className="mb-1 text-lg font-bold">
+    <div className="grid items-start gap-5 md:grid-cols-2">
+      <Card className="md:col-span-2">
+        <h2 className="mb-2 text-2xl font-bold">
           {home.activeBookId === null ? "Between books" : "Did you do your pushups?"}
         </h2>
-        <p className="mb-4 text-sm text-ink/60">
+        <p className="mb-6 text-sm text-muted">
           {home.activeBookId === null
             ? "Push-ups are paused until the next book starts. Visit the Library to help choose it."
             : `${viewer ? prettyDay(viewer.today) : ""} — report before your midnight. Silence costs ⛈️⛈️.`}
@@ -153,23 +163,29 @@ function TodayTab(props: { home: Home }) {
               <Button
                 onClick={() => void report("star")}
                 variant="ghost"
-                className="flex-1 py-4 text-2xl"
+                className="checkin-choice hover:border-accent hover:bg-accent/10"
               >
-                ⭐️ Did them
+                <span aria-hidden="true" className="text-3xl">
+                  ⭐️
+                </span>
+                Did them
               </Button>
               <Button
                 onClick={() => void report("storm")}
                 variant="ghost"
-                className="flex-1 py-4 text-2xl"
+                className="checkin-choice hover:border-accent hover:bg-accent/10"
               >
-                ⛈️ Didn't
+                <span aria-hidden="true" className="text-3xl">
+                  ⛈️
+                </span>
+                Didn't
               </Button>
             </div>
           )
         )}
         {viewer?.checkinToday && (
-          <p className="mt-3 flex items-center gap-3 text-sm text-ink/60">
-            <span>
+          <p className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted">
+            <span role="status">
               {viewer.checkinToday === "missed"
                 ? "Your day rolled over without a word — ⛈️⛈️."
                 : `Logged ${viewer.checkinToday === "star" ? "⭐️" : "⛈️"} for today.`}
@@ -177,7 +193,7 @@ function TodayTab(props: { home: Home }) {
             {undoLeft !== null && (
               <button
                 onClick={() => void takeBack()}
-                className="font-bold tabular-nums text-accent"
+                className="min-h-11 px-2 font-bold tabular-nums text-accent"
               >
                 Undo · {undoLeft}s
               </button>
@@ -187,18 +203,32 @@ function TodayTab(props: { home: Home }) {
         <ErrorNote error={error} />
       </Card>
 
-      <Card>
+      <Card className={!history?.length ? "md:col-span-2" : ""}>
         <h2 className="mb-3 text-lg font-bold">The club today</h2>
-        <ul className="space-y-2">
+        <ul className="divide-y divide-line">
           {home.members.map((m) => (
-            <li key={m._id} className="flex items-center justify-between">
-              <span className="font-medium">
+            <li key={m._id} className="flex items-center justify-between gap-3 py-3">
+              <span className="min-w-0 font-medium">
                 {m.name}
                 {m._id === home.viewerId && (
-                  <span className="text-ink/40"> (you)</span>
+                  <span className="text-muted"> (you)</span>
                 )}
               </span>
-              <span className="text-lg">
+              <span
+                role="img"
+                aria-label={
+                  !m.isPushupDay
+                    ? "Rest day"
+                    : m.checkinToday === "star"
+                      ? "Pushups done"
+                      : m.checkinToday === "storm"
+                        ? "Pushups not done"
+                        : m.checkinToday === "missed"
+                          ? "Missed check-in"
+                          : "No check-in yet"
+                }
+                className="shrink-0 text-xl"
+              >
                 {!m.isPushupDay
                   ? "😴"
                   : m.checkinToday === "star"
@@ -213,7 +243,7 @@ function TodayTab(props: { home: Home }) {
           ))}
         </ul>
         {home.activeBookId !== null && (
-          <p className="mt-3 text-xs text-ink/40">
+          <p className="mt-3 text-xs text-muted">
             ⏳ = no word yet (their local day may still be young)
           </p>
         )}
@@ -222,12 +252,14 @@ function TodayTab(props: { home: Home }) {
       {history && history.length > 0 && (
         <Card>
           <h2 className="mb-3 text-lg font-bold">Your last two weeks</h2>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {[...history].reverse().map((d) => (
               <div
                 key={d.day}
+                role="img"
+                aria-label={`${prettyDay(d.day)}: ${!d.required ? "rest day" : d.status === "star" ? "pushups done" : d.status === "storm" ? "pushups not done" : d.status === "missed" ? "missed check-in" : "no check-in"}`}
                 title={`${prettyDay(d.day)}`}
-                className="flex h-12 w-9 flex-col items-center justify-center rounded-lg border border-ink/10 bg-paper text-xs"
+                className="flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-lg bg-paper text-sm"
               >
                 <span>
                   {!d.required
@@ -240,7 +272,7 @@ function TodayTab(props: { home: Home }) {
                           ? "⛈️⛈️"
                           : "·"}
                 </span>
-                <span className="text-[10px] text-ink/40">
+                <span className="text-xs tabular-nums text-muted">
                   {d.day.slice(8)}
                 </span>
               </div>

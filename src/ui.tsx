@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 export function Card(props: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={`rounded-2xl border border-ink/10 bg-white p-5 shadow-sm ${props.className ?? ""}`}
+      className={`surface-card ${props.className ?? ""}`}
     >
       {props.children}
     </div>
@@ -20,7 +20,7 @@ export function Button(props: {
 }) {
   const variants = {
     primary: "bg-accent text-white hover:bg-accent-dark",
-    ghost: "border border-ink/20 hover:bg-ink/5",
+    ghost: "border border-control hover:bg-paper",
     danger: "border border-red-300 text-red-700 hover:bg-red-50",
   };
   return (
@@ -28,7 +28,7 @@ export function Button(props: {
       type={props.type ?? "button"}
       onClick={props.onClick}
       disabled={props.disabled}
-      className={`rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${variants[props.variant ?? "primary"]} ${props.className ?? ""}`}
+      className={`button-control ${variants[props.variant ?? "primary"]} ${props.className ?? ""}`}
     >
       {props.children}
     </button>
@@ -37,8 +37,8 @@ export function Button(props: {
 
 export function Field(props: { label: string; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink/60">
+    <label className="block min-w-0">
+      <span className="mb-1.5 block text-sm font-semibold">
         {props.label}
       </span>
       {props.children}
@@ -46,8 +46,7 @@ export function Field(props: { label: string; children: ReactNode }) {
   );
 }
 
-export const inputClass =
-  "w-full rounded-xl border border-ink/20 bg-white px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20";
+export const inputClass = "input-control";
 
 export function ErrorNote(props: { error: string | null }) {
   if (!props.error) return null;
@@ -66,9 +65,50 @@ export function Pill(props: { children: ReactNode; tone?: "ok" | "warn" | "muted
   };
   return (
     <span
-      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${tones[props.tone ?? "muted"]}`}
+      className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${tones[props.tone ?? "muted"]}`}
     >
       {props.children}
     </span>
+  );
+}
+
+export function NavIcon(props: {
+  name: "today" | "book" | "library" | "standings" | "club";
+}) {
+  const paths = {
+    today: (
+      <path d="m12 3 2.7 5.6 6.2.9-4.5 4.4 1.1 6.1-5.5-2.9L6.5 20l1.1-6.1L3.1 9.5l6.2-.9L12 3Z" />
+    ),
+    book: (
+      <path d="M12 5v15M3 4h4a7 7 0 0 1 5 2 7 7 0 0 1 5-2h4v14h-4a7 7 0 0 0-5 2 7 7 0 0 0-5-2H3V4Z" />
+    ),
+    library: (
+      <path d="M4 5h4v15H4zM8 5h4v15H8zM14 5l4-1 4 15-4 1zM4 8h8M4 17h8" />
+    ),
+    standings: (
+      <path d="M7 16H6a4 4 0 0 1-.5-8 6 6 0 0 1 11.6-1.5A4.8 4.8 0 0 1 18 16h-1M13 12l-3 5h4l-3 5" />
+    ),
+    club: (
+      <>
+        <circle cx="9" cy="7" r="3" />
+        <path d="M3 20v-2a6 6 0 0 1 12 0v2M16 4a3 3 0 0 1 0 6M18 13a5 5 0 0 1 3 5v2" />
+      </>
+    ),
+  };
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      {paths[props.name]}
+    </svg>
   );
 }

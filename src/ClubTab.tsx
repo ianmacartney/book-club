@@ -31,14 +31,17 @@ function Members(props: { home: Home }) {
       <h2 className="mb-3 text-lg font-bold">Members</h2>
       <ul className="space-y-2 text-sm">
         {props.home.members.map((m) => (
-          <li key={m._id} className="flex items-center justify-between">
-            <span className="font-medium">
+          <li
+            key={m._id}
+            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line py-2.5 last:border-0"
+          >
+            <span className="min-w-0 font-medium">
               {m.name}
               {m._id === props.home.viewerId && (
-                <span className="text-ink/40"> (you)</span>
+                <span className="text-muted"> (you)</span>
               )}
             </span>
-            <span className="text-ink/50">
+            <span className="text-muted">
               {m.offGrid
                 ? `⛈️ off the grid until ${prettyDay(m.offGrid.toDay)}`
                 : (m.timezone ?? "timezone unknown")}
@@ -60,7 +63,7 @@ function Invites(props: { clubId: Id<"clubs"> }) {
   return (
     <Card>
       <h2 className="mb-1 text-lg font-bold">Invite someone</h2>
-      <p className="mb-3 text-sm text-ink/60">
+      <p className="mb-3 text-sm text-muted">
         Mint a single-use code and send it however you like. They enter it
         after signing up. Naming the invite pre-fills their display name and
         shows you who hasn't joined yet.
@@ -68,11 +71,11 @@ function Invites(props: { clubId: Id<"clubs"> }) {
       {invites && invites.length > 0 && (
         <ul className="mb-3 space-y-2">
           {invites.map((i) => (
-            <li key={i._id} className="flex items-center justify-between rounded-xl bg-paper px-3 py-2">
-              <span>
+            <li key={i._id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-paper px-3 py-3">
+              <span className="min-w-0">
                 <code className="font-mono text-lg tracking-widest">{i.code}</code>
                 {i.forName && (
-                  <span className="ml-2 text-sm text-ink/50">
+                  <span className="ml-2 text-sm text-muted">
                     for {i.forName}
                   </span>
                 )}
@@ -92,7 +95,7 @@ function Invites(props: { clubId: Id<"clubs"> }) {
         </ul>
       )}
       <form
-        className="flex items-end gap-2"
+        className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
         onSubmit={async (e) => {
           e.preventDefault();
           setError(null);
@@ -137,7 +140,7 @@ function Profile() {
   return (
     <Card>
       <h2 className="mb-1 text-lg font-bold">You</h2>
-      <p className="mb-3 text-sm text-ink/60">
+      <p className="mb-3 text-sm text-muted">
         Your timezone decides when your day ends — for pushups and for section
         deadlines. Today for you: <strong>{me.today}</strong>.
       </p>
@@ -218,7 +221,7 @@ function OffGrid() {
   return (
     <Card>
       <h2 className="mb-1 text-lg font-bold">Off the grid</h2>
-      <p className="mb-3 text-sm text-ink/60">
+      <p className="mb-3 text-sm text-muted">
         Heading somewhere without service? Say so before you go and each day
         away costs one ⛈️ instead of the 2 clouds silence costs — and if you
         find a bar of signal, a ⭐️ still beats it. Reading deadlines don't
@@ -226,9 +229,9 @@ function OffGrid() {
       </p>
 
       {periods === undefined ? (
-        <p className="text-sm text-ink/50">Checking your plans…</p>
+        <p className="text-sm text-muted">Checking your plans…</p>
       ) : periods.length === 0 ? (
-        <p className="text-sm text-ink/50">Nothing planned.</p>
+        <p className="text-sm text-muted">Nothing planned.</p>
       ) : (
         <ul className="mb-3 space-y-2">
           {periods.map((p) =>
@@ -276,7 +279,7 @@ function OffGrid() {
                       <Pill tone="warn">Away now</Pill>
                     </span>
                   )}
-                  {p.note && <span className="ml-2 text-ink/50">{p.note}</span>}
+                  {p.note && <span className="ml-2 text-muted">{p.note}</span>}
                 </span>
                 <span className="flex gap-2">
                   <Button
@@ -369,7 +372,7 @@ function AbsenceForm(props: {
         }
       }}
     >
-      <div className="flex flex-wrap gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="First day away">
           <input
             type="date"
@@ -399,7 +402,7 @@ function AbsenceForm(props: {
         </Field>
       </div>
       {props.lockStart && (
-        <p className="text-xs text-ink/50">
+        <p className="text-xs text-muted">
           This one's under way — you can move the end, not the start.
         </p>
       )}
@@ -428,7 +431,7 @@ function SignOut() {
   return (
     <p className="text-center">
       <button
-        className="text-sm text-ink/50 hover:underline"
+        className="min-h-11 px-3 text-sm text-muted hover:underline"
         onClick={() => void signOut()}
       >
         Sign out

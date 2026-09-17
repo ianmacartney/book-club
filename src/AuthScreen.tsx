@@ -9,19 +9,19 @@ import { Button, Card, ErrorNote, Field, inputClass } from "./ui";
 export function AuthScreen() {
   const [mode, setMode] = useState<"logIn" | "signUp">("logIn");
   return (
-    <div className="mx-auto max-w-sm pt-16">
-      <h1 className="mb-1 text-center text-3xl font-bold">📚 Book Club</h1>
-      <p className="mb-8 text-center text-ink/60">
+    <div className="mx-auto max-w-sm pt-8 sm:pt-16">
+      <h1 className="mb-3 text-center text-3xl font-bold">📚 Book Club</h1>
+      <p className="mb-8 text-center text-base text-muted">
         Pushups every day. A book on the go. ⭐️ or ⛈️ — your call.
       </p>
       <Card>
         {mode === "logIn" ? <LogInForm /> : <SignUpForm />}
-        <p className="mt-4 text-center text-sm text-ink/60">
+        <p className="mt-4 text-center text-sm text-muted">
           {mode === "logIn" ? (
             <>
               New here?{" "}
               <button
-                className="font-semibold text-accent hover:underline"
+                className="inline-flex min-h-11 items-center font-semibold text-accent hover:underline"
                 onClick={() => setMode("signUp")}
               >
                 Create an account
@@ -31,7 +31,7 @@ export function AuthScreen() {
             <>
               Already a member?{" "}
               <button
-                className="font-semibold text-accent hover:underline"
+                className="inline-flex min-h-11 items-center font-semibold text-accent hover:underline"
                 onClick={() => setMode("logIn")}
               >
                 Log in
