@@ -211,8 +211,8 @@ export const home = query({
           name: user.name,
           timezone: user.timezone ?? null,
           today,
-          isPushupDay: isPushupDay(today),
-          checkinToday: checkin?.status ?? null,
+          isPushupDay: activeBook !== null && isPushupDay(today),
+          checkinToday: activeBook === null ? null : checkin?.status ?? null,
           bookClouds,
           offGrid:
             offGrid === null

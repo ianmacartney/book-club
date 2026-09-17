@@ -7,9 +7,17 @@ Tailwind CSS 4.
 
 ## House rules
 
-- **Pushups, Monday–Saturday.** Report during your own calendar day (your
+- **Pushups, Monday–Saturday while a book is active.** Report during your own calendar day (your
   timezone): ⭐️ if you did them, ⛈️ if you didn't (1 cloud). Say nothing and
   the nightly rollover bills you ⛈️⛈️ (2 clouds). Sunday is a rest day.
+  Between books, push-ups, their reminders, and missed-day chat reports pause.
+  On the local day a book finishes, unanswered check-ins are excused; reports
+  already submitted stay in the history. The daily quote remains available.
+- **Daily reminders** use your chosen local reminder time. While nominations
+  are open, members who haven't suggested a book get a nomination nudge,
+  including Sundays and breaks. One nomination satisfies it. When push-ups
+  are also outstanding, both reminders share a notification. Off-grid members
+  and ghosts receive neither reminder.
 - **One book at a time.** The book is split into sections, divvied round-robin
   through the member rotation. When the previous section lands, the next
   reader has **2 calendar days** (their timezone) to post quotes + thoughts.

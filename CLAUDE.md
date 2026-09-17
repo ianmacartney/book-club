@@ -72,12 +72,23 @@ Notes for agents:
 
 # Data administration guide
 
-The club rules: daily pushups Mon–Sat (⭐ = did them, ⛈ = didn't = 1 cloud,
+The club rules: daily pushups Mon–Sat while a book is active (⭐ = did them, ⛈ = didn't = 1 cloud,
 silence = 2 clouds), one book at a time read in rotation (2 calendar days per
 section, 2 clouds per late day, skips cost 2 extra), most clouds at book end
 owes the punishment. Declaring yourself **off the grid** up front (out of
 service) buys a ⛈ per day away instead of silence's 2 — reading deadlines are
 untouched. Auth v2 docs snapshot: `.context/auth-v2-docs.md`.
+
+Between books there are no push-up obligations, push-up reminders, or daily
+penalty posts. `convex/lib/reading.ts` checks historical reading periods for
+the rollover's catch-up window; the local finish day excuses missing reports
+but preserves reports already submitted. Live books carry optional start/end
+timestamps for timezone boundaries; imports use their recorded dates. The
+daily quote is freely available during breaks. The daily reminder also nudges
+members who haven't nominated in an open poll, once per local day at their
+chosen time (even Sundays/breaks); off-grid members and ghosts are excluded.
+`pushups:clearBreakPenalties` previews by default and repairs at most 32 days,
+preserving real reports, obligations in other clubs, and frozen book results.
 
 **This deployment holds the club's real data** (8 years imported from
 iMessage). Never insert test data; verify reads with queries before writes.

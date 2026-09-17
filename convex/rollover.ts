@@ -1,8 +1,10 @@
 import { internalMutation } from "./_generated/server";
+import { v } from "convex/values";
 import { releaseDrafts } from "./books";
 import { clubMemberships } from "./lib/access";
 import { accrueLateClouds } from "./lib/clouds";
-import { addDays, dayInTz, isPushupDay, todayInTz } from "./lib/days";
+import { addDays, todayInTz } from "./lib/days";
+import { pushupsRequired, readingPeriods } from "./lib/reading";
 import { offGridOn } from "./lib/offgrid";
 import { mintDailyQuote } from "./quotes";
 
@@ -25,31 +27,19 @@ const CATCH_UP_DAYS = 7;
  */
 export const processAll = internalMutation({
   args: {},
+  returns: v.null(),
   handler: async (ctx) => {
     // --- 1. Missed pushups -------------------------------------------------
     // eslint-disable-next-line @convex-dev/no-collect-in-query -- all members + ghosts — a few dozen; matched case-insensitively
     const users = await ctx.db.query("users").collect();
     for (const user of users) {
-      // Ghost memberships carry no obligations, so only full memberships
-      // put pushups at stake (the oldest one starts the clock).
-      // eslint-disable-next-line @convex-dev/no-collect-in-query -- a user's club memberships — a small bounded set
-      const memberships = await ctx.db
-        .query("memberships")
-        .withIndex("userId", (q) => q.eq("userId", user._id))
-        .collect();
-      const active = memberships.filter((m) => m.role !== "ghost");
-      if (active.length === 0) {
-        continue; // not a full member of any club, nothing at stake
-      }
+      const periods = await readingPeriods(ctx, user);
       const today = todayInTz(user.timezone);
-      const atStakeSince = dayInTz(
-        Math.min(...active.map((m) => m._creationTime)),
-        user.timezone,
-      );
       for (let back = 1; back <= CATCH_UP_DAYS; back++) {
         const day = addDays(today, -back);
-        // Not required on Sundays or before joining.
-        if (!isPushupDay(day) || day < atStakeSince) {
+        // Evaluate that day's reading period, even if its book has finished
+        // since. Breaks, Sundays, and days before joining carry no obligation.
+        if (!pushupsRequired(periods, day, user.timezone)) {
           continue;
         }
         const checkin = await ctx.db
@@ -118,5 +108,6 @@ export const processAll = internalMutation({
         await mintDailyQuote(ctx, club._id, day);
       }
     }
+    return null;
   },
 });

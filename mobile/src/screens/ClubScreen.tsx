@@ -514,8 +514,9 @@ function Notifications(props: { isGhost: boolean }) {
           <View style={[styles.prefText, { marginTop: space(3) }]}>
             <Text style={styles.prefTitle}>Daily reminder</Text>
             <Muted>
-              If you haven't reported by this time (your timezone), you get
-              one nudge. Silence still costs ⛈️⛈️.
+              At this time in your timezone, get a nudge for unreported push-ups
+              or an open nomination you haven't made yet. Push-up reminders
+              pause between books.
             </Muted>
           </View>
           <View style={styles.chipRow}>

@@ -135,13 +135,16 @@ function TodayTab(props: { home: Home }) {
   return (
     <div className="space-y-4">
       <Card>
-        <h2 className="mb-1 text-lg font-bold">Did you do your pushups?</h2>
+        <h2 className="mb-1 text-lg font-bold">
+          {home.activeBookId === null ? "Between books" : "Did you do your pushups?"}
+        </h2>
         <p className="mb-4 text-sm text-ink/60">
-          {viewer ? prettyDay(viewer.today) : ""} — report before your midnight.
-          Silence costs ⛈️⛈️.
+          {home.activeBookId === null
+            ? "Push-ups are paused until the next book starts. Visit the Library to help choose it."
+            : `${viewer ? prettyDay(viewer.today) : ""} — report before your midnight. Silence costs ⛈️⛈️.`}
         </p>
         {viewer && !viewer.isPushupDay ? (
-          <Pill tone="ok">Sunday — rest day 😴</Pill>
+          <Pill tone="ok">{home.activeBookId === null ? "No push-ups required" : "Sunday — rest day 😴"}</Pill>
         ) : (
           // Reported is reported: the answer can't be revised, so the buttons
           // go away rather than sitting there erroring.
@@ -209,9 +212,11 @@ function TodayTab(props: { home: Home }) {
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-xs text-ink/40">
-          ⏳ = no word yet (their local day may still be young)
-        </p>
+        {home.activeBookId !== null && (
+          <p className="mt-3 text-xs text-ink/40">
+            ⏳ = no word yet (their local day may still be young)
+          </p>
+        )}
       </Card>
 
       {history && history.length > 0 && (

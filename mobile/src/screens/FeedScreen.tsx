@@ -466,7 +466,11 @@ function Composer() {
         </Pressable>
       )}
       {!viewer.isPushupDay ? (
-        <Muted style={styles.centered}>Sunday — rest day 😴</Muted>
+        <Muted style={styles.centered}>
+          {home.activeBookId === null
+            ? "Between books — push-ups resume when the next book starts."
+            : "Sunday — rest day 😴"}
+        </Muted>
       ) : chosen !== null ? (
         // Reported: the answer stands, so the buttons are gone rather than
         // sitting there looking tappable — bar a moment to catch a mis-tap.

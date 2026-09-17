@@ -9,9 +9,10 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { hasActiveMembership, requireUser } from "./lib/access";
+import { requireUser } from "./lib/access";
 import { isPushupDay, timeNowInTz, todayInTz } from "./lib/days";
 import { offGridOn } from "./lib/offgrid";
+import { activeMemberships, hasReadingMembership } from "./lib/reading";
 
 /**
  * Push notifications for the mobile app, via the Expo push notifications
@@ -22,7 +23,7 @@ import { offGridOn } from "./lib/offgrid";
  *  1. section submissions — everyone hears a chapter landed; the next
  *     reader gets a "you're up" regardless of preferences;
  *  2. replies to a write-up, on the same switch as the write-ups themselves;
- *  3. a daily pushup reminder at a member-chosen local time (cron below);
+ *  3. a daily push-up / nomination reminder at a member-chosen local time;
  *  4. opt-in ⭐️ announcements when a member logs their pushups.
  */
 export const push = new PushNotifications(components.pushNotifications);
@@ -134,6 +135,7 @@ export const updateSettings = mutation({
       await ctx.db.replace("notificationPrefs", existing._id, {
         userId: user._id,
         reminderSentDay: existing.reminderSentDay,
+        nominationReminderSentDay: existing.nominationReminderSentDay,
         ...next,
       });
     }
@@ -163,7 +165,9 @@ async function sendBatch(ctx: MutationCtx, sends: Send[]): Promise<void> {
   // Commit the submission before touching the push component. Delivery runs
   // in its own transaction, so a notification failure cannot roll it back.
   try {
-    await ctx.scheduler.runAfter(0, internal.notifications.deliverBatch, { sends });
+    await ctx.scheduler.runAfter(0, internal.notifications.deliverBatch, {
+      sends,
+    });
   } catch (err) {
     console.error("could not schedule push notification batch", err);
   }
@@ -174,7 +178,33 @@ export const deliverBatch = internalMutation({
   returns: v.null(),
   handler: async (ctx, { sends }) => {
     const registered: Send[] = [];
-    for (const send of sends) {
+    for (let send of sends) {
+      // The book may have finished or the member may have nominated between
+      // scheduling and delivery. Never send a reminder that is already stale.
+      if (send.notification.data?.type === "daily_reminder") {
+        const user = await ctx.db.get("users", send.userId);
+        if (!user) continue;
+        const prefs = await prefsFor(ctx, user._id);
+        if (
+          !prefs?.reminderTime ||
+          timeNowInTz(user.timezone) < prefs.reminderTime
+        )
+          continue;
+        const current = await dailyReminder(
+          ctx,
+          user,
+          send.notification.data.day,
+          send.notification.data.pushups,
+          send.notification.data.nominations,
+        );
+        if (!current) continue;
+        send = current;
+      } else if (
+        send.notification.data?.type === "reminder" &&
+        !(await hasReadingMembership(ctx, send.userId))
+      ) {
+        continue; // Reminders queued by the previous version, before the break.
+      }
       const status = await push.getStatusForUser(ctx, { userId: send.userId });
       if (status.hasToken && !status.paused) {
         registered.push(send);
@@ -361,6 +391,14 @@ export async function notifyStarLogged(
     .collect();
   const clubmateIds = new Set<Id<"users">>();
   for (const membership of memberships) {
+    if (membership.role === "ghost") continue;
+    const activeBook = await ctx.db
+      .query("books")
+      .withIndex("clubStatus", (q) =>
+        q.eq("clubId", membership.clubId).eq("status", "active"),
+      )
+      .first();
+    if (!activeBook) continue;
     // eslint-disable-next-line @convex-dev/no-collect-in-query -- a club's members — bounded (~100)
     const others = await ctx.db
       .query("memberships")
@@ -390,12 +428,87 @@ export async function notifyStarLogged(
 // Daily reminder cron (see convex/crons.ts — runs every 15 minutes)
 // ---------------------------------------------------------------------------
 
+async function dailyReminder(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  day: string,
+  includePushups: boolean,
+  includeNominations: boolean,
+): Promise<Send | null> {
+  if (day !== todayInTz(user.timezone) || (await offGridOn(ctx, user._id, day)))
+    return null;
+  let pushups = false;
+  if (
+    includePushups &&
+    isPushupDay(day) &&
+    (await hasReadingMembership(ctx, user._id))
+  ) {
+    const checkin = await ctx.db
+      .query("checkins")
+      .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", day))
+      .unique();
+    pushups = checkin === null;
+  }
+  const polls: { pollId: Id<"polls">; clubId: Id<"clubs">; name: string }[] =
+    [];
+  if (includeNominations) {
+    for (const membership of await activeMemberships(ctx, user._id)) {
+      const poll = await ctx.db
+        .query("polls")
+        .withIndex("clubStatus", (q) =>
+          q.eq("clubId", membership.clubId).eq("status", "nominating"),
+        )
+        .first();
+      if (!poll) continue;
+      const nomination = await ctx.db
+        .query("nominations")
+        .withIndex("pollUser", (q) =>
+          q.eq("pollId", poll._id).eq("suggestedBy", user._id),
+        )
+        .first();
+      if (nomination) continue; // One suggestion satisfies the reminder; two is a limit, not a quota.
+      const club = await ctx.db.get("clubs", membership.clubId);
+      polls.push({
+        pollId: poll._id,
+        clubId: membership.clubId,
+        name: club?.name ?? "Your club",
+      });
+    }
+  }
+  const nominations = polls.length > 0;
+  if (!pushups && !nominations) return null;
+  return {
+    userId: user._id,
+    notification: {
+      title: nominations
+        ? pushups
+          ? "Push-ups and your next book"
+          : "Nominate the next book"
+        : "We haven't heard from you yet today",
+      body: nominations
+        ? `${pushups ? "Report your push-ups. " : ""}Nominations are open in ${polls.map((p) => p.name).join(", ")}. Suggest a book in the Library.`
+        : "Report today's push-ups before your midnight.",
+      sound: "default",
+      data: {
+        type: "daily_reminder",
+        day,
+        pushups,
+        nominations,
+        pollIds: polls.map((p) => p.pollId),
+        clubIds: polls.map((p) => p.clubId),
+      },
+    },
+  };
+}
+
 /**
- * Nudge anyone past their chosen reminder time who hasn't reported pushups
- * yet today (in their own timezone). At most one nudge per local day.
+ * At the member's chosen local time, remind them of required push-ups and/or
+ * an outstanding nomination. Each reason sends at most once per local day;
+ * simultaneous reminders share one push. Nominations also run on rest days.
  */
 export const sendReminders = internalMutation({
   args: {},
+  returns: v.null(),
   handler: async (ctx) => {
     // eslint-disable-next-line @convex-dev/no-collect-in-query -- one row per user — bounded (a few dozen)
     const allPrefs = await ctx.db.query("notificationPrefs").collect();
@@ -408,41 +521,27 @@ export const sendReminders = internalMutation({
       if (user === null) {
         continue;
       }
-      // Ghosts owe no pushups, so they get no reminders.
-      if (!(await hasActiveMembership(ctx, user._id))) {
-        continue;
-      }
       const today = todayInTz(user.timezone);
-      if (
-        !isPushupDay(today) ||
-        prefs.reminderSentDay === today ||
-        timeNowInTz(user.timezone) < prefs.reminderTime
-      ) {
+      if (timeNowInTz(user.timezone) < prefs.reminderTime) {
         continue;
       }
-      // Off the grid: they can't receive it, and their day is already settled.
-      if ((await offGridOn(ctx, user._id, today)) !== null) {
-        continue;
-      }
-      const checkin = await ctx.db
-        .query("checkins")
-        .withIndex("userDay", (q) =>
-          q.eq("userId", user._id).eq("day", today),
-        )
-        .unique();
-      if (checkin !== null) {
-        continue;
-      }
-      sends.push({
-        userId: user._id,
-        notification: {
-          title: "We haven't heard from you yet today",
-          sound: "default",
-          data: { type: "reminder" },
-        },
+      const send = await dailyReminder(
+        ctx,
+        user,
+        today,
+        prefs.reminderSentDay !== today,
+        prefs.nominationReminderSentDay !== today,
+      );
+      if (!send) continue;
+      sends.push(send);
+      await ctx.db.patch("notificationPrefs", prefs._id, {
+        ...(send.notification.data.pushups ? { reminderSentDay: today } : {}),
+        ...(send.notification.data.nominations
+          ? { nominationReminderSentDay: today }
+          : {}),
       });
-      await ctx.db.patch("notificationPrefs", prefs._id, { reminderSentDay: today });
     }
     await sendBatch(ctx, sends);
+    return null;
   },
 });

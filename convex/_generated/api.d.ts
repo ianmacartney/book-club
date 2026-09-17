@@ -18,6 +18,7 @@ import type * as lib_access from "../lib/access.js";
 import type * as lib_clouds from "../lib/clouds.js";
 import type * as lib_days from "../lib/days.js";
 import type * as lib_offgrid from "../lib/offgrid.js";
+import type * as lib_reading from "../lib/reading.js";
 import type * as lib_voting from "../lib/voting.js";
 import type * as notifications from "../notifications.js";
 import type * as offgrid from "../offgrid.js";
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   "lib/clouds": typeof lib_clouds;
   "lib/days": typeof lib_days;
   "lib/offgrid": typeof lib_offgrid;
+  "lib/reading": typeof lib_reading;
   "lib/voting": typeof lib_voting;
   notifications: typeof notifications;
   offgrid: typeof offgrid;

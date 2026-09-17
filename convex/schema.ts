@@ -141,11 +141,12 @@ export default defineSchema({
   // pushNotifications component; this holds the app-level choices).
   notificationPrefs: defineTable({
     userId: v.id("users"),
-    // "HH:mm" in the member's own timezone — nudge if they haven't reported
-    // pushups by then. Unset = no reminder.
+    // "HH:mm" in the member's own timezone — nudge for outstanding push-ups
+    // or an open nomination. Unset = no reminder.
     reminderTime: v.optional(v.string()),
     // Last local day a reminder was sent, so the cron fires at most once/day.
     reminderSentDay: v.optional(v.string()),
+    nominationReminderSentDay: v.optional(v.string()),
     // Opt-in: hear about every ⭐️ other members log.
     notifyOnStars: v.boolean(),
     // On by default: section submissions and book finishes.
@@ -167,7 +168,11 @@ export default defineSchema({
     ),
     rotation: v.array(v.id("users")), // reading order, fixed at start
     startedDay: v.string(),
+    // Live timestamps let each reader's timezone define the first/last day.
+    // Historical imports retain their recorded calendar days as a fallback.
+    startedAt: v.optional(v.number()),
     endedDay: v.optional(v.string()),
+    endedAt: v.optional(v.number()),
     // Snapshot computed when the final section lands.
     result: v.optional(
       v.object({
@@ -178,6 +183,7 @@ export default defineSchema({
     pollId: v.optional(v.id("polls")),
   })
     .index("clubStatus", ["clubId", "status"])
+    .index("clubStarted", ["clubId", "startedDay"])
     .index("pollId", ["pollId"])
     // For the cron sweeping every active book across all clubs.
     .index("status", ["status"]),
@@ -229,7 +235,9 @@ export default defineSchema({
     author: v.optional(v.string()),
     punishment: v.optional(v.string()), // Legacy nominations; new stakes are set after winning.
     suggestedBy: v.id("users"),
-  }).index("pollId", ["pollId"]),
+  })
+    .index("pollId", ["pollId"])
+    .index("pollUser", ["pollId", "suggestedBy"]),
 
   votes: defineTable({
     pollId: v.id("polls"),

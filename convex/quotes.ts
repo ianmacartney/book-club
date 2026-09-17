@@ -94,8 +94,7 @@ export function splitQuotes(raw: string): string[] {
     let buffer = [lines[0].text];
     for (const line of lines.slice(1)) {
       const sofar = buffer.join(" ");
-      const finished =
-        unclosedQuotes(sofar) <= 0 && /[.!?"”’'…]$/.test(sofar);
+      const finished = unclosedQuotes(sofar) <= 0 && /[.!?"”’'…]$/.test(sofar);
       if (finished && /^[“"]/.test(line.text)) {
         pulls.push(sofar);
         buffer = [line.text];
@@ -327,7 +326,17 @@ export const today = query({
       .query("checkins")
       .withIndex("userDay", (q) => q.eq("userId", user._id).eq("day", day))
       .unique();
-    const earned = !isPushupDay(day) || isGhost(membership) || checkin !== null;
+    const activeBook = await ctx.db
+      .query("books")
+      .withIndex("clubStatus", (q) =>
+        q.eq("clubId", args.clubId).eq("status", "active"),
+      )
+      .first();
+    const earned =
+      activeBook === null ||
+      !isPushupDay(day) ||
+      isGhost(membership) ||
+      checkin !== null;
     if (!earned) {
       return { earned: false as const };
     }

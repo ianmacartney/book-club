@@ -3,6 +3,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import { QueryCtx, query } from "./_generated/server";
 import { clubRecipientIds, requireMembership } from "./lib/access";
 import { addDays } from "./lib/days";
+import { reportBelongsToBook } from "./lib/reading";
 
 /**
  * The club's life as a chat-style timeline, composed on the fly from the
@@ -245,6 +246,7 @@ export const forClub = query({
 
     // --- Check-ins: one indexed range scan per member ----------------------
     for (const memberId of memberIds) {
+      const member = await ctx.db.get("users", memberId);
       // eslint-disable-next-line @convex-dev/no-collect-in-query -- indexed from the window floor; the live window grows a row per member per day
       const checkins = await ctx.db
         .query("checkins")
@@ -253,6 +255,13 @@ export const forClub = query({
         )
         .collect();
       for (const c of checkins) {
+        // Keep real stars in the archive, but don't narrate penalties for
+        // days when this club had no push-up obligation.
+        if (
+          c.status !== "star" &&
+          !books.some((book) => reportBelongsToBook(book, c, member?.timezone))
+        )
+          continue;
         events.push({
           type: "checkin",
           day: c.day,
@@ -325,18 +334,13 @@ export const forClub = query({
           status: book.status,
           punishment: book.punishment,
           loserNames: await Promise.all(
-            (book.result?.loserIds ?? []).map((id) =>
-              nameOf(ctx, names, id),
-            ),
+            (book.result?.loserIds ?? []).map((id) => nameOf(ctx, names, id)),
           ),
         });
       }
       // Skip the sections read when the book can't have submissions inside
       // the window.
-      if (
-        book.startedDay > through ||
-        (ended !== undefined && ended < from)
-      ) {
+      if (book.startedDay > through || (ended !== undefined && ended < from)) {
         continue;
       }
       // eslint-disable-next-line @convex-dev/no-collect-in-query -- one book's sections — bounded (<1000/book, dozens in practice)

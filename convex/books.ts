@@ -78,6 +78,7 @@ export async function startBookHelper(
     status: "active",
     rotation,
     startedDay,
+    startedAt: args.startedDay === undefined ? Date.now() : undefined,
     pollId: args.pollId,
   });
   // Sections are divvied up round-robin through the rotation, fixed up front.
@@ -511,6 +512,7 @@ export async function finishBook(ctx: MutationCtx, book: Doc<"books">) {
   await ctx.db.patch("books", book._id, {
     status: "finished",
     endedDay,
+    endedAt: Date.now(),
     result: { tallies, loserIds },
   });
 }
@@ -530,6 +532,7 @@ export const abandon = mutation({
     await ctx.db.patch("books", book._id, {
       status: "abandoned",
       endedDay: todayInTz(undefined),
+      endedAt: Date.now(),
     });
     return null;
   },
