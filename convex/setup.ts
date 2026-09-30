@@ -171,6 +171,94 @@ export const startBookAsAdmin = internalMutation({
   },
 });
 
+/** Expand a mistaken grouped breakdown before anyone has written a section.
+ * Defaults to a preview; expectedTitles guards against overwriting a newer
+ * breakdown. Existing section IDs, assignees, and the first deadline survive. */
+export const expandBookSections = internalMutation({
+  args: {
+    bookId: v.id("books"),
+    expectedTitles: v.array(v.string()),
+    sectionTitles: v.array(v.string()),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    dryRun: v.boolean(),
+    changed: v.boolean(),
+    previousCount: v.number(),
+    sections: v.array(v.object({
+      index: v.number(),
+      title: v.string(),
+      assignedTo: v.id("users"),
+      dueDay: v.union(v.string(), v.null()),
+    })),
+  }),
+  handler: async (ctx, args) => {
+    const titles = args.sectionTitles.map((title) => title.trim());
+    if (!titles.length || titles.length > 200 ||
+      titles.some((title) => !title || title.length > 300) ||
+      !args.expectedTitles.length || args.expectedTitles.length > 200) {
+      throw new ConvexError("Supply 1–200 sections, with titles up to 300 characters.");
+    }
+    const book = await ctx.db.get("books", args.bookId);
+    if (!book || book.status !== "active" || !book.rotation.length) {
+      throw new ConvexError("An active book with a reading rotation is required.");
+    }
+    const sections = await ctx.db.query("sections")
+      .withIndex("bookIdx", (q) => q.eq("bookId", book._id)).take(201);
+    if (!sections.length || sections.length > 200 ||
+      sections.some((section, i) => section.index !== i ||
+        section.assignedTo !== book.rotation[i % book.rotation.length])) {
+      throw new ConvexError("The existing sections must follow the book's rotation and consecutive indexes.");
+    }
+    const sameTitles = (other: string[]) =>
+      sections.length === other.length && sections.every((s, i) => s.title === other[i]);
+    const unchanged = sameTitles(titles);
+    const dryRun = args.dryRun ?? true;
+    const proposed = titles.map((title, index) => ({
+      index, title, assignedTo: book.rotation[index % book.rotation.length],
+      dueDay: sections[index]?.dueDay ?? null,
+    }));
+    // Safe to retry even if someone has begun reading since the repair landed.
+    if (unchanged) return { dryRun, changed: false, previousCount: sections.length, sections: proposed };
+    if (!sameTitles(args.expectedTitles)) {
+      throw new ConvexError("The breakdown changed since it was inspected; read it again.");
+    }
+    if (titles.length <= sections.length) {
+      throw new ConvexError("This repair only expands a breakdown; it cannot remove sections.");
+    }
+    if (sections.some((s, i) => s.submission || s.draft || (i > 0 && s.dueDay))) {
+      throw new ConvexError("A section has writing or an advanced deadline; repair its history explicitly.");
+    }
+    for (const section of sections) {
+      const cloud = await ctx.db.query("clouds")
+        .withIndex("sectionDay", (q) => q.eq("sectionId", section._id)).first();
+      if (cloud) throw new ConvexError("A section has cloud charges; repair its history explicitly.");
+    }
+    const poll = book.pollId ? await ctx.db.get("polls", book.pollId) : null;
+    if (book.pollId && (!poll?.setup || poll.clubId !== book.clubId ||
+      !sameTitles(poll.setup.sectionTitles))) {
+      throw new ConvexError("The saved poll setup does not match the book's breakdown.");
+    }
+    if (!dryRun) {
+      for (const section of proposed) {
+        const existing = sections[section.index];
+        if (existing) {
+          await ctx.db.patch("sections", existing._id, { title: section.title });
+        } else {
+          await ctx.db.insert("sections", {
+            bookId: book._id, index: section.index,
+            title: section.title, assignedTo: section.assignedTo,
+          });
+        }
+      }
+      if (poll?.setup) await ctx.db.patch("polls", poll._id, {
+        setup: { ...poll.setup, sectionTitles: titles },
+      });
+    }
+    return { dryRun, changed: true, previousCount: sections.length, sections: proposed };
+  },
+});
+
 /**
  * Record a historical submission for the next unsubmitted section. Mirrors
  * submitSection but with an explicit day: bills late days up to that day,

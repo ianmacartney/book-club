@@ -205,6 +205,14 @@ npx convex run setup:startBookAsAdmin '{"clubId":"<club>","title":"…",
   "rotationNames":["Peter","Henry","Billy","Ian M","Ian S"],
   "sectionTitles":["Book 1","…"],"startedDay":"2026-07-20"}'
 
+# Expand a mistakenly grouped breakdown before any section has writing or
+# cloud charges. Previews by default; repeat with dryRun:false to apply.
+# Preserves existing section IDs, rotation, first deadline, and punishment;
+# also updates the poll's saved setup. Refuses a stale expectedTitles list.
+npx convex run setup:expandBookSections '{"bookId":"<book>",
+  "expectedTitles":["Reader A: 1-2, 5-6","Reader B: 3-4, 7-8"],
+  "sectionTitles":["1–2","3–4","5–6","7–8"]}'
+
 # Ghosts: watch the club, owe nothing, never in a rotation. Creates the
 # membership if the user has none — the path for giving an ex-member access:
 npx convex run setup:setMemberRole \
