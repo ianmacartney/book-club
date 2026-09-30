@@ -213,6 +213,13 @@ npx convex run setup:expandBookSections '{"bookId":"<book>",
   "expectedTitles":["Reader A: 1-2, 5-6","Reader B: 3-4, 7-8"],
   "sectionTitles":["1–2","3–4","5–6","7–8"]}'
 
+# Reorder the same readers before any writing or section charges exist.
+# Defaults to preview; dryRun:false updates all assignments and saved setup,
+# preserving section IDs, titles, and the first deadline.
+npx convex run setup:reorderBookRotation '{"bookId":"<book>",
+  "expectedRotation":["<readerA>","<readerB>"],
+  "rotation":["<readerB>","<readerA>"]}'
+
 # Ghosts: watch the club, owe nothing, never in a rotation. Creates the
 # membership if the user has none — the path for giving an ex-member access:
 npx convex run setup:setMemberRole \

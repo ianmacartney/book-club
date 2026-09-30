@@ -179,3 +179,119 @@ test("rejects shrinking, empty titles, and oversized repairs", async () => {
   }
   expect((await r.read()).sections.map((s) => s.title)).toEqual(grouped);
 });
+
+test("reorders all 31 sections and saved setup while preserving titles, IDs, and deadlines", async () => {
+  const r = await fixture();
+  await r.t.mutation(internal.setup.expandBookSections, {
+    ...r.args,
+    dryRun: false,
+  });
+  const before = await r.read();
+  const rotation = [
+    r.rotation[4],
+    r.rotation[2],
+    r.rotation[3],
+    r.rotation[0],
+    r.rotation[1],
+  ];
+  const args = { bookId: r.bookId, expectedRotation: r.rotation, rotation };
+  expect(await r.t.mutation(internal.setup.reorderBookRotation, args)).toEqual({
+    dryRun: true,
+    changed: true,
+    sectionCount: 31,
+    rotation,
+    firstDueDay: "2026-10-01",
+  });
+  expect(await r.read()).toEqual(before);
+  await r.t.mutation(internal.setup.reorderBookRotation, {
+    ...args,
+    dryRun: false,
+  });
+  const after = await r.read();
+  expect(after.book).toEqual({ ...before.book, rotation });
+  expect(after.poll).toEqual({
+    ...before.poll,
+    setup: { ...before.poll?.setup, rotation },
+  });
+  expect(after.sections).toEqual(
+    before.sections.map((s, i) => ({ ...s, assignedTo: rotation[i % 5] })),
+  );
+  expect(after.jobs).toEqual([]);
+  expect(
+    await r.t.mutation(internal.setup.reorderBookRotation, {
+      ...args,
+      dryRun: false,
+    }),
+  ).toMatchObject({ changed: false });
+  expect(await r.read()).toEqual(after);
+});
+
+test.each([
+  "draft",
+  "submission",
+  "cloud",
+  "deadline",
+  "finished",
+  "stale",
+  "duplicate",
+  "outsider",
+  "poll",
+])(
+  "refuses a rotation repair with %s without partial writes",
+  async (conflict) => {
+    const r = await fixture();
+    const { sections } = await r.read();
+    const args = {
+      bookId: r.bookId,
+      expectedRotation: r.rotation,
+      rotation: [...r.rotation].reverse(),
+      dryRun: false,
+    };
+    await r.t.run(async (ctx) => {
+      const writing = {
+        by: r.rotation[0],
+        at: Date.now(),
+        quotes: "Quote",
+        thoughts: "Notes",
+      };
+      if (conflict === "draft")
+        await ctx.db.patch("sections", sections[0]._id, { draft: writing });
+      if (conflict === "submission")
+        await ctx.db.patch("sections", sections[0]._id, {
+          submission: { ...writing, day: "2026-09-29", skip: false },
+        });
+      if (conflict === "cloud")
+        await ctx.db.insert("clouds", {
+          userId: r.rotation[0],
+          sectionId: sections[0]._id,
+          day: "2026-10-02",
+          source: "section_late",
+          count: 2,
+        });
+      if (conflict === "deadline")
+        await ctx.db.patch("sections", sections[1]._id, {
+          dueDay: "2026-10-03",
+        });
+      if (conflict === "finished")
+        await ctx.db.patch("books", r.bookId, { status: "finished" });
+      if (conflict === "stale")
+        args.expectedRotation = [...r.rotation].reverse();
+      if (conflict === "duplicate") args.rotation[0] = args.rotation[1];
+      if (conflict === "outsider")
+        args.rotation[0] = await ctx.db.insert("users", { name: "Outsider" });
+      if (conflict === "poll")
+        await ctx.db.patch("polls", r.pollId, {
+          setup: {
+            sectionTitles: grouped,
+            punishment: "Sing",
+            rotation: [...r.rotation].reverse(),
+          },
+        });
+    });
+    const before = await r.read();
+    await expect(
+      r.t.mutation(internal.setup.reorderBookRotation, args),
+    ).rejects.toThrow();
+    expect(await r.read()).toEqual(before);
+  },
+);

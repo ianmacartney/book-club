@@ -259,6 +259,79 @@ export const expandBookSections = internalMutation({
   },
 });
 
+/** Reorder the same readers before any section has writing or cloud charges.
+ * Section IDs, titles, and deadlines stay fixed; no announcements are sent. */
+export const reorderBookRotation = internalMutation({
+  args: {
+    bookId: v.id("books"),
+    expectedRotation: v.array(v.id("users")),
+    rotation: v.array(v.id("users")),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    dryRun: v.boolean(),
+    changed: v.boolean(),
+    sectionCount: v.number(),
+    rotation: v.array(v.id("users")),
+    firstDueDay: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const book = await ctx.db.get("books", args.bookId);
+    if (!book || book.status !== "active") {
+      throw new ConvexError("An active book is required.");
+    }
+    if (!args.rotation.length || args.rotation.length > 100 ||
+      args.rotation.length !== book.rotation.length ||
+      new Set(args.rotation).size !== args.rotation.length ||
+      args.rotation.some((id) => !book.rotation.includes(id))) {
+      throw new ConvexError("Include each existing reader exactly once.");
+    }
+    const sections = await ctx.db.query("sections")
+      .withIndex("bookIdx", (q) => q.eq("bookId", book._id)).take(201);
+    if (!sections.length || sections.length > 200 ||
+      sections.some((s, i) => s.index !== i ||
+        s.assignedTo !== book.rotation[i % book.rotation.length])) {
+      throw new ConvexError("Sections must follow the existing reading rotation.");
+    }
+    const matches = (other: Id<"users">[]) => other.length === book.rotation.length &&
+      other.every((id, i) => id === book.rotation[i]);
+    const result = {
+      dryRun: args.dryRun ?? true, changed: !matches(args.rotation),
+      sectionCount: sections.length, rotation: args.rotation,
+      firstDueDay: sections[0].dueDay ?? null,
+    };
+    if (!result.changed) return result; // A retried repair never reassigns twice.
+    if (!matches(args.expectedRotation)) {
+      throw new ConvexError("The rotation changed since it was inspected; read it again.");
+    }
+    if (sections.some((s, i) => s.submission || s.draft || (i > 0 && s.dueDay))) {
+      throw new ConvexError("Reading has begun; preserve its history with an explicit repair.");
+    }
+    for (const section of sections) {
+      const cloud = await ctx.db.query("clouds")
+        .withIndex("sectionDay", (q) => q.eq("sectionId", section._id)).first();
+      if (cloud) throw new ConvexError("Sections already have cloud charges.");
+    }
+    const poll = book.pollId ? await ctx.db.get("polls", book.pollId) : null;
+    if (book.pollId && (!poll?.setup || poll.clubId !== book.clubId ||
+      (poll.setup.rotation && !matches(poll.setup.rotation)))) {
+      throw new ConvexError("The saved setup does not match the book's rotation.");
+    }
+    if (!result.dryRun) {
+      await ctx.db.patch("books", book._id, { rotation: args.rotation });
+      for (const section of sections) {
+        await ctx.db.patch("sections", section._id, {
+          assignedTo: args.rotation[section.index % args.rotation.length],
+        });
+      }
+      if (poll?.setup) await ctx.db.patch("polls", poll._id, {
+        setup: { ...poll.setup, rotation: args.rotation },
+      });
+    }
+    return result;
+  },
+});
+
 /**
  * Record a historical submission for the next unsubmitted section. Mirrors
  * submitSection but with an explicit day: bills late days up to that day,
